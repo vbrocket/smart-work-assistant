@@ -1,0 +1,32 @@
+# Core dependencies
+setuptools>=69.0.0
+wheel
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Database
+sqlalchemy>=2.0.25
+aiosqlite>=0.19.0
+
+# HTTP & Forms
+python-multipart>=0.0.6
+httpx>=0.26.0
+
+# Microsoft Auth
+msal>=1.26.0
+
+# Speech-to-Text (faster-whisper is easier to install than openai-whisper)
+faster-whisper>=0.10.0
+
+# Text-to-Speech
+edge-tts>=6.1.9
+
+# Configuration
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Async file handling
+aiofiles>=23.2.1

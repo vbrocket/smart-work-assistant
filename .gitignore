@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+backend/venv/
+venv/
+.venv/
+
+# Environment variables (contains secrets)
+backend/.env
+
+# Database files
+backend/data/
+backend/*.db
+*.db
+
+# Logs
+backend/logs/
+
+# IDE
+.cursor/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Temp files
+*.tmp
+*.bak
+backend/database/db.pyssss
+backend/openapi_check.json
