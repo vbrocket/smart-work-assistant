@@ -1,5 +1,9 @@
 from .db import engine, AsyncSessionLocal, async_session, init_db, get_db
-from .models import Base, User, Email, Task, Conversation, TaskStatus, TaskPriority
+from .models import (
+    Base, User, Email, Task, Conversation,
+    CalendarEvent, Contact,
+    TaskStatus, TaskPriority
+)
 
 __all__ = [
     "engine",
@@ -12,6 +16,8 @@ __all__ = [
     "Email",
     "Task",
     "Conversation",
+    "CalendarEvent",
+    "Contact",
     "TaskStatus",
     "TaskPriority"
 ]

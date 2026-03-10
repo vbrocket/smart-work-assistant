@@ -71,13 +71,16 @@ const API = {
     /**
      * Text to speech
      */
-    async speak(text, language = 'en') {
+    async speak(text, language = 'en', gender = 'male') {
         const response = await fetch(`${this.baseUrl}/voice/speak`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, language })
+            body: JSON.stringify({ text, language, gender })
         });
         
+        if (response.status === 204) {
+            return new Blob();
+        }
         if (!response.ok) {
             throw new Error('TTS failed');
         }
@@ -86,13 +89,105 @@ const API = {
     },
     
     /**
-     * Send chat message
+     * Send chat message (non-streaming)
      */
     async chat(message, language = 'en') {
         return this.request('/voice/chat', {
             method: 'POST',
             body: JSON.stringify({ message, language })
         });
+    },
+
+    /**
+     * Stream chat response via SSE.
+     * @param {string} message
+     * @param {string} language
+     * @param {object} callbacks  { onRoute(intent), onToken(text), onCitations(arr,refsText), onDone(fullResp,lang), onError(msg), onClear() }
+     * @param {object} opts  { voiceMode: boolean }
+     * @returns {AbortController} – call .abort() to cancel
+     */
+    chatStream(message, language = 'en', callbacks = {}, opts = {}) {
+        const controller = new AbortController();
+        const url = `${this.baseUrl}/voice/chat/stream`;
+
+        (async () => {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message,
+                        language,
+                        voice_mode: !!opts.voiceMode,
+                    }),
+                    signal: controller.signal,
+                });
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const jsonStr = line.slice(6);
+                        let evt;
+                        try { evt = JSON.parse(jsonStr); } catch { continue; }
+
+                        switch (evt.type) {
+                            case 'route':
+                                callbacks.onRoute?.(evt.intent);
+                                break;
+                            case 'token':
+                                callbacks.onToken?.(evt.content);
+                                break;
+                            case 'thinking_start':
+                                callbacks.onThinkingStart?.();
+                                break;
+                            case 'thinking':
+                                callbacks.onThinking?.(evt.content);
+                                break;
+                            case 'thinking_end':
+                                callbacks.onThinkingEnd?.();
+                                break;
+                            case 'citations':
+                                callbacks.onCitations?.(evt.citations, evt.refs_text);
+                                break;
+                            case 'done':
+                                callbacks.onDone?.(evt.full_response, evt.language);
+                                break;
+                            case 'clear':
+                                callbacks.onClear?.();
+                                break;
+                            case 'auth_required':
+                                callbacks.onAuthRequired?.();
+                                break;
+                            case 'error':
+                                callbacks.onError?.(evt.message);
+                                break;
+                        }
+                    }
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    callbacks.onError?.(err.message);
+                }
+            }
+        })();
+
+        return controller;
     },
     
     // ============ Email Endpoints ============
@@ -232,11 +327,72 @@ const API = {
         return this.request(`/tasks/${taskId}`, { method: 'DELETE' });
     },
     
+    // ============ Calendar Endpoints ============
+    
+    async getCalendarEvents(date = null) {
+        const params = new URLSearchParams();
+        if (date) params.set('date', date);
+        params.set('sync', 'true');
+        return this.request(`/calendar/?${params.toString()}`);
+    },
+    
+    async getEventDetail(eventId) {
+        return this.request(`/calendar/${eventId}`);
+    },
+    
+    async createCalendarEvent(data) {
+        return this.request('/calendar/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    },
+    
+    // ============ Contacts Endpoints ============
+    
+    async getContacts(search = null) {
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        return this.request(`/contacts/?${params.toString()}`);
+    },
+    
+    async syncContacts() {
+        return this.request('/contacts/sync', { method: 'POST' });
+    },
+    
+    // ============ Policy / RAG Endpoints ============
+    
+    async uploadPolicyDoc(file) {
+        const formData = new FormData();
+        formData.append('file', file, file.name);
+        
+        const response = await fetch(`${this.baseUrl}/policy/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.detail || 'Upload failed');
+        }
+        
+        return response.json();
+    },
+    
+    async deletePolicyDoc(filename) {
+        return this.request(`/policy/documents/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+    },
+    
+    async ingestPolicyDocs() {
+        return this.request('/policy/ingest', { method: 'POST' });
+    },
+    
+    async getPolicyStatus() {
+        return this.request('/policy/status');
+    },
+    
     // ============ Summary Endpoints ============
     
-    /**
-     * Get daily summary
-     */
     async getDailySummary() {
         return this.request('/summary/daily');
     }

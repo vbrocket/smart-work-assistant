@@ -1,3 +1,3 @@
-from . import voice, email, tasks
+from . import voice, email, tasks, calendar, contacts, policy
 
-__all__ = ["voice", "email", "tasks"]
+__all__ = ["voice", "email", "tasks", "calendar", "contacts", "policy"]

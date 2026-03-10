@@ -1,12 +1,12 @@
 {
-  "name": "Smart Work Assistant",
-  "short_name": "Smart Assistant",
+  "name": "stc AI Work Assistant",
+  "short_name": "stc Assistant",
   "description": "AI-powered assistant for managing meetings and emails with voice interaction in Arabic and English",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#1a73e8",
+  "theme_color": "#4F008C",
   "icons": [
     {
       "src": "icons/icon-72.png",

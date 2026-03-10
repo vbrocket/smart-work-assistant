@@ -1,0 +1,328 @@
+"""Full ingestion pipeline: load PDF -> section chunk -> table extract -> embed -> store."""
+
+from __future__ import annotations
+
+import logging
+import os
+import unicodedata
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from .bm25_store import BM25Store
+from .chunker import SectionChunker
+from .embedder import Embedder
+from .models import ChunkRecord
+from .table_extractor import TableExtractor
+from .vector_store import VectorStoreBase
+
+logger = logging.getLogger("rag.ingest")
+
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+
+try:
+    from docx import Document as DocxDocument
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+
+
+def _fix_reversed_arabic(text: str) -> str:
+    """Detect and fix reversed Arabic text extracted from broken PDFs.
+
+    Many Arabic PDFs store text in visual (LTR) word order instead of logical
+    (RTL) order.  This results in each line having its words reversed after
+    extraction.  We detect this by checking whether common Arabic prefixes
+    appear more often at word-starts when the word order is reversed, and if
+    so, reverse the word order on every predominantly-Arabic line.
+    """
+
+    def _is_arabic_char(ch: str) -> bool:
+        try:
+            return "ARABIC" in unicodedata.name(ch, "")
+        except ValueError:
+            return False
+
+    def _arabic_ratio(s: str) -> float:
+        alpha = [c for c in s if c.isalpha()]
+        if not alpha:
+            return 0.0
+        return sum(1 for c in alpha if _is_arabic_char(c)) / len(alpha)
+
+    def _word_order_reversed_score(line: str) -> tuple:
+        """Return (score_fwd, score_rev) for word-order reversal detection."""
+        stripped = line.strip()
+        if not stripped or _arabic_ratio(stripped) < 0.3:
+            return (0, 0)
+        words = stripped.split()
+        if len(words) < 2:
+            return (0, 0)
+        rev_words = list(reversed(words))
+        prefixes = ("ال", "و", "ب", "ف", "ل", "ك", "من", "في", "على", "عن")
+        # Also check if clause numbers are at the end (reversed) vs beginning
+        import re
+        clause_re = re.compile(r"^\d+(\.\d+)*$")
+        score_fwd = sum(1 for w in words if any(w.startswith(p) for p in prefixes))
+        score_rev = sum(1 for w in rev_words if any(w.startswith(p) for p in prefixes))
+        # Clause number at end of line (original) means it should be at start
+        if words and clause_re.match(words[-1]):
+            score_rev += 2
+        if words and clause_re.match(words[0]):
+            score_fwd += 2
+        return (score_fwd, score_rev)
+
+    lines = text.split("\n")
+    sample = [l for l in lines if l.strip() and _arabic_ratio(l) > 0.3][:30]
+    if not sample:
+        return text
+
+    total_fwd = 0
+    total_rev = 0
+    for l in sample:
+        sf, sr = _word_order_reversed_score(l)
+        total_fwd += sf
+        total_rev += sr
+
+    if total_rev <= total_fwd:
+        return text
+
+    logger.info("Detected word-order reversed Arabic text – reversing word order per line")
+    fixed = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and _arabic_ratio(stripped) > 0.3:
+            words = stripped.split()
+            fixed.append(" ".join(reversed(words)))
+        else:
+            fixed.append(line)
+    return "\n".join(fixed)
+
+
+def _extract_doc_version(filename: str) -> str:
+    """Try to pull a version number from the filename (e.g. '5.0', '1.02')."""
+    import re
+    m = re.search(r"(\d+\.\d+)", filename)
+    return m.group(1) if m else ""
+
+
+class IngestionPipeline:
+    """Orchestrates document loading, chunking, table extraction, embedding, and storage."""
+
+    def __init__(
+        self,
+        vector_store: VectorStoreBase,
+        bm25_store: BM25Store,
+        embedder: Embedder,
+        documents_dir: str = "documents",
+        chunk_max_tokens: int = 1100,
+        chunk_overlap_tokens: int = 100,
+    ):
+        self.vector_store = vector_store
+        self.bm25_store = bm25_store
+        self.embedder = embedder
+        self.documents_dir = documents_dir
+        self.chunker = SectionChunker(
+            max_tokens=chunk_max_tokens,
+            overlap_tokens=chunk_overlap_tokens,
+        )
+        self.table_extractor = TableExtractor()
+        self._last_ingestion: Optional[str] = None
+
+    async def ingest(self) -> Dict[str, Any]:
+        """Run the full ingestion pipeline over all documents."""
+        logger.info("Starting ingestion from %s ...", self.documents_dir)
+
+        all_records: List[ChunkRecord] = []
+        source_files: List[str] = []
+
+        if not os.path.isdir(self.documents_dir):
+            logger.warning("Documents directory not found: %s", self.documents_dir)
+            return {"status": "no_documents", "documents": 0, "chunks": 0}
+
+        for filename in sorted(os.listdir(self.documents_dir)):
+            filepath = os.path.join(self.documents_dir, filename)
+            if not os.path.isfile(filepath):
+                continue
+
+            ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+            doc_id = filename
+            doc_version = _extract_doc_version(filename)
+
+            if ext == "pdf":
+                pages = self._load_pdf(filepath, filename)
+                text_chunks = self.chunker.chunk_pages(
+                    pages, doc_id=doc_id, doc_name=filename, doc_version=doc_version,
+                )
+                table_rows = self.table_extractor.extract(
+                    filepath, doc_id=doc_id, doc_name=filename, doc_version=doc_version,
+                )
+                all_records.extend(text_chunks)
+                all_records.extend(table_rows)
+                source_files.append(filename)
+            elif ext in ("docx",):
+                pages = self._load_docx(filepath, filename)
+                text_chunks = self.chunker.chunk_pages(
+                    pages, doc_id=doc_id, doc_name=filename, doc_version=doc_version,
+                )
+                all_records.extend(text_chunks)
+                source_files.append(filename)
+            elif ext in ("txt", "md", "text"):
+                pages = self._load_text(filepath, filename)
+                text_chunks = self.chunker.chunk_pages(
+                    pages, doc_id=doc_id, doc_name=filename, doc_version=doc_version,
+                )
+                all_records.extend(text_chunks)
+                source_files.append(filename)
+            else:
+                logger.debug("Skipping unsupported file: %s", filename)
+
+        if not all_records:
+            return {"status": "no_chunks", "documents": len(source_files), "chunks": 0}
+
+        for rec in all_records:
+            rec.ensure_id()
+
+        # Embed all texts
+        texts = [r.text for r in all_records]
+        embeddings = await self.embedder.embed_texts(texts)
+
+        # Clear and rebuild stores
+        self.vector_store.delete_collection()
+        self.vector_store.upsert(all_records, embeddings)
+        self.bm25_store.build(all_records)
+
+        self._last_ingestion = datetime.utcnow().isoformat()
+
+        # Write marker so startup can detect backend mismatches
+        self._write_backend_marker()
+
+        logger.info(
+            "Ingestion complete | files=%d | chunks=%d (text=%d, table=%d)",
+            len(source_files),
+            len(all_records),
+            sum(1 for r in all_records if r.chunk_type == "text_clause"),
+            sum(1 for r in all_records if r.chunk_type == "table_row"),
+        )
+
+        return {
+            "status": "success",
+            "documents": len(source_files),
+            "chunks": len(all_records),
+            "text_chunks": sum(1 for r in all_records if r.chunk_type == "text_clause"),
+            "table_rows": sum(1 for r in all_records if r.chunk_type == "table_row"),
+            "source_files": source_files,
+            "ingested_at": self._last_ingestion,
+        }
+
+    # ── Backend marker ─────────────────────────────────────────────
+
+    BACKEND_MARKER = "embed_backend.txt"
+
+    def _marker_path(self) -> str:
+        data_dir = os.path.dirname(
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "_")
+        )
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, self.BACKEND_MARKER)
+
+    def _write_backend_marker(self) -> None:
+        from config import get_settings
+        s = get_settings()
+        backend = s.effective_embed_backend
+        if backend == "huggingface":
+            model = s.hf_embed_model
+        elif backend == "openrouter":
+            model = s.or_embed_model
+        else:
+            model = s.ollama_embed_model
+        marker = f"{backend}:{model}"
+        try:
+            with open(self._marker_path(), "w", encoding="utf-8") as f:
+                f.write(marker)
+            logger.info("Wrote embedding backend marker: %s", marker)
+        except Exception as e:
+            logger.warning("Could not write backend marker: %s", e)
+
+    def get_stored_backend(self) -> Optional[str]:
+        """Return the backend name that was used for the current stored embeddings."""
+        path = self._marker_path()
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+        return None
+
+    # ── Status ───────────────────────────────────────────────────
+
+    def get_status(self) -> Dict[str, Any]:
+        doc_files: List[str] = []
+        if os.path.isdir(self.documents_dir):
+            doc_files = [
+                f for f in os.listdir(self.documents_dir)
+                if os.path.isfile(os.path.join(self.documents_dir, f))
+                and f.rsplit(".", 1)[-1].lower() in ("pdf", "docx", "txt", "md", "text")
+            ]
+
+        return {
+            "indexed_chunks": self.vector_store.count(),
+            "bm25_docs": self.bm25_store.count(),
+            "document_files": doc_files,
+            "document_count": len(doc_files),
+            "last_ingestion": self._last_ingestion,
+            "documents_dir": self.documents_dir,
+            "embed_backend": self.get_stored_backend(),
+        }
+
+    # ── Document loaders ───────────────────────────────────────────
+
+    @staticmethod
+    def _load_pdf(filepath: str, filename: str) -> List[Dict[str, Any]]:
+        if not PYMUPDF_AVAILABLE:
+            logger.error("pymupdf not installed – cannot read PDF files")
+            return []
+        pages = []
+        try:
+            doc = fitz.open(filepath)
+            for i, page in enumerate(doc):
+                text = page.get_text("text") or ""
+                if text.strip():
+                    text = _fix_reversed_arabic(text)
+                    text = unicodedata.normalize("NFKC", text)
+                    pages.append({"text": text, "page": i + 1})
+            doc.close()
+        except Exception as e:
+            logger.error("Failed to read PDF %s: %s", filename, e)
+        return pages
+
+    @staticmethod
+    def _load_docx(filepath: str, filename: str) -> List[Dict[str, Any]]:
+        if not DOCX_AVAILABLE:
+            logger.error("python-docx not installed – cannot read DOCX files")
+            return []
+        try:
+            doc = DocxDocument(filepath)
+            full_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            if full_text.strip():
+                full_text = unicodedata.normalize("NFKC", full_text)
+                return [{"text": full_text, "page": 1}]
+        except Exception as e:
+            logger.error("Failed to read DOCX %s: %s", filename, e)
+        return []
+
+    @staticmethod
+    def _load_text(filepath: str, filename: str) -> List[Dict[str, Any]]:
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                text = f.read()
+            if text.strip():
+                text = unicodedata.normalize("NFKC", text)
+                return [{"text": text, "page": 1}]
+        except Exception as e:
+            logger.error("Failed to read text file %s: %s", filename, e)
+        return []

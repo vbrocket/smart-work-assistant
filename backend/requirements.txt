@@ -22,6 +22,7 @@ faster-whisper>=0.10.0
 
 # Text-to-Speech
 edge-tts>=6.1.9
+elevenlabs>=1.0.0
 
 # Configuration
 python-dotenv>=1.0.0
@@ -30,3 +31,38 @@ pydantic-settings>=2.1.0
 
 # Async file handling
 aiofiles>=23.2.1
+
+# RAG - Document parsing
+pymupdf>=1.24.0
+python-docx>=1.1.0
+
+# RAG - Vector store (Qdrant primary)
+qdrant-client>=1.7.0
+
+# RAG - FAISS fallback
+faiss-cpu>=1.7.4
+numpy>=1.24.0
+
+# RAG - BM25 lexical search
+rank-bm25>=0.2.2
+
+# RAG - Reranker (cross-encoder)
+sentence-transformers>=2.3.0
+torch>=2.1.0
+transformers>=4.47.0,<5.0.0
+
+# HuggingFace Inference API (used when LLM_BACKEND=huggingface)
+huggingface-hub>=0.25.0
+
+# OpenRouter API (used when LLM_BACKEND=openrouter, Llama 4 Scout default)
+openai>=1.0.0
+
+# Coqui XTTS-v2 (used when TTS_BACKEND=xtts, requires Python >=3.10 <3.13)
+coqui-tts>=0.24.0
+
+# NAMAA-Saudi-TTS (used when TTS_BACKEND=namaa, requires Python <=3.12)
+# Uncomment the line below if you plan to use NAMAA TTS:
+# chatterbox-tts>=0.1.4
+
+# Legacy (kept for migration adapter; can be removed after full migration)
+chromadb>=0.5.0

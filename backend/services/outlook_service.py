@@ -1,9 +1,10 @@
 """
 Outlook Service - Microsoft Graph API integration
-Handles OAuth device code flow and email operations
+Handles OAuth device code flow, email, calendar, tasks, and contacts
 """
 import asyncio
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta, date
 from typing import Optional, List, Dict, Any, Tuple
 
 try:
@@ -20,12 +21,16 @@ except ImportError:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from database.models import User, Email, Task, TaskStatus, TaskPriority
+from database.models import User, Email, Task, TaskStatus, TaskPriority, CalendarEvent, Contact
 from config import get_settings
 from services.logger import get_email_logger
 
+import logging as _logging
+
 settings = get_settings()
 logger = get_email_logger()
+
+_logging.getLogger("msal").setLevel(_logging.DEBUG)
 
 
 class OutlookService:
@@ -34,13 +39,13 @@ class OutlookService:
     # Microsoft Graph API endpoints
     GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
     
-    # Required scopes for email and tasks access
-    # Note: Don't include offline_access, profile, or openid - they're reserved/automatic for personal accounts
     SCOPES = [
         "User.Read",
         "Mail.Read",
         "Mail.Send",
-        "Tasks.Read"
+        "Calendars.ReadWrite",
+        "Contacts.Read",
+        "Tasks.ReadWrite",
     ]
     
     def __init__(self):
@@ -140,6 +145,12 @@ class OutlookService:
         self._device_code_flow = None
         
         if "error" in result:
+            logger.error(
+                "Device code token acquisition failed | error=%s | description=%s | correlation=%s",
+                result.get("error"),
+                result.get("error_description"),
+                result.get("correlation_id"),
+            )
             return False, None
         
         # Get user info from token
@@ -660,6 +671,273 @@ class OutlookService:
         
         logger.info(f"Synced {len(synced_tasks)} tasks to database")
         return synced_tasks
+    
+    # ============ Calendar Methods ============
+    
+    async def fetch_calendar_events(
+        self,
+        access_token: str,
+        start_date: str,
+        end_date: str,
+        top: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Fetch calendar events for a date range using calendarView."""
+        if not HTTPX_AVAILABLE:
+            raise RuntimeError("httpx not installed")
+        
+        params = {
+            "startDateTime": start_date,
+            "endDateTime": end_date,
+            "$top": top,
+            "$orderby": "start/dateTime",
+            "$select": "id,subject,organizer,start,end,location,isOnlineMeeting,onlineMeeting,bodyPreview,isAllDay,attendees,responseStatus"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.GRAPH_BASE_URL}/me/calendarView",
+                headers={"Authorization": f"Bearer {access_token}",
+                          "Prefer": 'outlook.timezone="UTC"'},
+                params=params
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch calendar events: {response.status_code} - {response.text}")
+                return []
+            
+            data = response.json()
+            return data.get("value", [])
+    
+    async def create_calendar_event(
+        self,
+        access_token: str,
+        subject: str,
+        start: str,
+        end: str,
+        attendees: List[Dict[str, str]] = None,
+        location: str = None,
+        body: str = None,
+        is_online: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a calendar event with optional Teams meeting link.
+        
+        Args:
+            attendees: List of {"email": "...", "name": "..."} dicts
+        """
+        if not HTTPX_AVAILABLE:
+            raise RuntimeError("httpx not installed")
+        
+        event_body = {
+            "subject": subject,
+            "start": {"dateTime": start, "timeZone": "UTC"},
+            "end": {"dateTime": end, "timeZone": "UTC"},
+            "isOnlineMeeting": is_online,
+            "onlineMeetingProvider": "teamsForBusiness" if is_online else None
+        }
+        
+        if location:
+            event_body["location"] = {"displayName": location}
+        
+        if body:
+            event_body["body"] = {"contentType": "text", "content": body}
+        
+        if attendees:
+            event_body["attendees"] = [
+                {
+                    "emailAddress": {
+                        "address": a.get("email", ""),
+                        "name": a.get("name", a.get("email", ""))
+                    },
+                    "type": "required"
+                }
+                for a in attendees
+            ]
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.GRAPH_BASE_URL}/me/events",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                },
+                json=event_body
+            )
+            
+            if response.status_code in [200, 201]:
+                logger.info(f"Calendar event created: {subject}")
+                return response.json()
+            else:
+                logger.error(f"Failed to create event: {response.status_code} - {response.text}")
+                return None
+    
+    async def sync_events_to_db(
+        self,
+        db: AsyncSession,
+        user: User,
+        access_token: str,
+        target_date: date = None,
+        days_ahead: int = 14
+    ) -> List[CalendarEvent]:
+        """Sync calendar events from target_date through target_date + days_ahead."""
+        if target_date is None:
+            target_date = date.today()
+        
+        start_dt = datetime.combine(target_date, datetime.min.time())
+        end_dt = datetime.combine(target_date + timedelta(days=days_ahead), datetime.max.time())
+        
+        start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%S.0000000")
+        end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S.0000000")
+        
+        graph_events = await self.fetch_calendar_events(access_token, start_str, end_str)
+        
+        synced = []
+        for ev in graph_events:
+            graph_id = ev.get("id")
+            
+            result = await db.execute(
+                select(CalendarEvent).where(CalendarEvent.graph_id == graph_id)
+            )
+            existing = result.scalar_one_or_none()
+            
+            organizer = ev.get("organizer", {}).get("emailAddress", {})
+            location_data = ev.get("location", {})
+            online_meeting = ev.get("onlineMeeting") or {}
+            
+            attendees_list = []
+            for att in ev.get("attendees", []):
+                ea = att.get("emailAddress", {})
+                attendees_list.append({
+                    "name": ea.get("name", ""),
+                    "email": ea.get("address", ""),
+                    "status": att.get("status", {}).get("response", "none")
+                })
+            
+            start_time = None
+            end_time = None
+            try:
+                start_time = datetime.fromisoformat(
+                    ev.get("start", {}).get("dateTime", "").replace("Z", "+00:00")
+                )
+                end_time = datetime.fromisoformat(
+                    ev.get("end", {}).get("dateTime", "").replace("Z", "+00:00")
+                )
+            except (ValueError, TypeError):
+                pass
+            
+            response_status = ev.get("responseStatus", {}).get("response", "none")
+            
+            fields = dict(
+                user_id=user.id,
+                subject=ev.get("subject", "(No Subject)"),
+                organizer_name=organizer.get("name", ""),
+                organizer_email=organizer.get("address", ""),
+                start_time=start_time,
+                end_time=end_time,
+                is_all_day=ev.get("isAllDay", False),
+                location=location_data.get("displayName", ""),
+                is_online=ev.get("isOnlineMeeting", False),
+                online_meeting_url=online_meeting.get("joinUrl", ""),
+                body_preview=ev.get("bodyPreview", ""),
+                attendees=json.dumps(attendees_list),
+                status=response_status
+            )
+            
+            if existing:
+                for k, v in fields.items():
+                    setattr(existing, k, v)
+                synced.append(existing)
+            else:
+                event = CalendarEvent(graph_id=graph_id, **fields)
+                db.add(event)
+                synced.append(event)
+        
+        await db.commit()
+        for ev in synced:
+            await db.refresh(ev)
+        
+        logger.info(f"Synced {len(synced)} calendar events for {target_date}")
+        return synced
+    
+    # ============ Contacts Methods ============
+    
+    async def fetch_contacts(
+        self,
+        access_token: str,
+        search: str = None,
+        top: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Fetch user's contacts from Microsoft Graph."""
+        if not HTTPX_AVAILABLE:
+            raise RuntimeError("httpx not installed")
+        
+        params = {
+            "$top": top,
+            "$orderby": "displayName",
+            "$select": "id,displayName,emailAddresses,companyName,jobTitle"
+        }
+        
+        if search:
+            params["$filter"] = f"startswith(displayName,'{search}') or startswith(givenName,'{search}') or startswith(surname,'{search}')"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.GRAPH_BASE_URL}/me/contacts",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch contacts: {response.status_code} - {response.text}")
+                return []
+            
+            data = response.json()
+            return data.get("value", [])
+    
+    async def sync_contacts_to_db(
+        self,
+        db: AsyncSession,
+        user: User,
+        access_token: str
+    ) -> List[Contact]:
+        """Cache contacts in local DB for fast autocomplete."""
+        graph_contacts = await self.fetch_contacts(access_token, top=200)
+        
+        synced = []
+        for c in graph_contacts:
+            graph_id = c.get("id")
+            emails = c.get("emailAddresses", [])
+            primary_email = emails[0].get("address", "") if emails else ""
+            
+            if not primary_email:
+                continue
+            
+            result = await db.execute(
+                select(Contact).where(Contact.graph_id == graph_id)
+            )
+            existing = result.scalar_one_or_none()
+            
+            fields = dict(
+                user_id=user.id,
+                display_name=c.get("displayName", ""),
+                email=primary_email,
+                company=c.get("companyName", ""),
+                job_title=c.get("jobTitle", ""),
+                synced_at=datetime.utcnow()
+            )
+            
+            if existing:
+                for k, v in fields.items():
+                    setattr(existing, k, v)
+                synced.append(existing)
+            else:
+                contact = Contact(graph_id=graph_id, **fields)
+                db.add(contact)
+                synced.append(contact)
+        
+        await db.commit()
+        logger.info(f"Synced {len(synced)} contacts to database")
+        return synced
 
 
 # Singleton instance

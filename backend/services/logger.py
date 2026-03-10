@@ -83,6 +83,11 @@ def get_task_logger() -> logging.Logger:
     return setup_logger("task")
 
 
+def get_rag_logger() -> logging.Logger:
+    """Get logger for RAG pipeline operations."""
+    return setup_logger("rag")
+
+
 # Convenience function to log with context
 def log_request(logger: logging.Logger, endpoint: str, data: dict):
     """Log an incoming request."""

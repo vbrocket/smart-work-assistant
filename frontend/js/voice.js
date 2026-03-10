@@ -243,9 +243,22 @@ const Voice = {
             }
             
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = language === 'ar' ? 'ar-SA' : 'en-US';
+            const targetLang = language === 'ar' ? 'ar-SA' : 'en-US';
+            utterance.lang = targetLang;
             utterance.rate = 1.0;
             utterance.pitch = 1.0;
+
+            const voices = speechSynthesis.getVoices();
+            const maleKeywords = ['male', 'david', 'mark', 'guy', 'hamed', 'fahd', 'james'];
+            const langVoices = voices.filter(v => v.lang.startsWith(language === 'ar' ? 'ar' : 'en'));
+            const maleVoice = langVoices.find(v =>
+                maleKeywords.some(k => v.name.toLowerCase().includes(k))
+            );
+            if (maleVoice) {
+                utterance.voice = maleVoice;
+            } else if (langVoices.length > 0) {
+                utterance.voice = langVoices[0];
+            }
             
             utterance.onend = resolve;
             utterance.onerror = reject;
@@ -254,6 +267,149 @@ const Voice = {
         });
     },
     
+    /**
+     * Clean text for TTS: strip markdown, JSON artifacts, citation markers,
+     * special characters — keep only natural prose suitable for reading aloud.
+     */
+    cleanForTTS(text) {
+        let t = text;
+        t = t.replace(/<think>[\s\S]*?<\/think>/g, '');
+        t = t.replace(/```[\s\S]*?```/g, '');
+        t = t.replace(/`([^`]+)`/g, '$1');
+        t = t.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1');
+        t = t.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+        t = t.replace(/^#{1,6}\s*/gm, '');
+        t = t.replace(/\*\*([^*]+)\*\*/g, '$1');
+        t = t.replace(/__([^_]+)__/g, '$1');
+        t = t.replace(/\*([^*]+)\*/g, '$1');
+        t = t.replace(/~~([^~]+)~~/g, '$1');
+        t = t.replace(/\*+/g, '');
+        t = t.replace(/^[-*_]{3,}\s*$/gm, '');
+        t = t.replace(/^>\s*/gm, '');
+        t = t.replace(/^\s*[-*+]\s+/gm, '');
+        t = t.replace(/^(\s*\d+)\.\s+/gm, '$1: ');
+        t = t.replace(/#/g, '');
+        t = t.replace(/[{}\[\]"\\]/g, '');
+        t = t.replace(/\b(section_id|section_title|page|quote|answer_ar|citations|confidence)\b\s*[:=]/gi, '');
+        t = t.replace(/\n{3,}/g, '\n\n');
+        t = t.replace(/  +/g, ' ');
+        return t.trim();
+    },
+
+    /**
+     * Create a streaming TTS handle with a prefetch pipeline: while sentence N
+     * is playing, sentence N+1 (and N+2) are already being fetched from the
+     * TTS API, eliminating the pause between sentences.
+     *
+     * @param {string} language - 'ar' or 'en'
+     * @returns {{ feedToken(t), feedCleanText(t), flush(), reset(), cancel(), waitForCompletion() }}
+     */
+    speakStreaming(language = 'en') {
+        const self = this;
+        const SENTENCE_RE = /[.!?؟。\n]/;
+        const MIN_CHARS = 30;
+
+        let buffer = '';
+        let audioQueue = [];
+        let playing = false;
+        let cancelled = false;
+        let doneResolve = null;
+        let flushed = false;
+        let spokenAnything = false;
+        const donePromise = new Promise(r => { doneResolve = r; });
+
+        function prefetch(text) {
+            const blobPromise = API.speak(text, language).catch(e => {
+                console.warn('TTS prefetch failed:', e);
+                return null;
+            });
+            audioQueue.push(blobPromise);
+            if (!playing) drain();
+        }
+
+        function finish() {
+            playing = false;
+            doneResolve?.();
+            doneResolve = null;
+        }
+
+        async function drain() {
+            if (cancelled) { finish(); return; }
+            if (audioQueue.length === 0) {
+                playing = false;
+                if (flushed) finish();
+                return;
+            }
+            playing = true;
+            const blobPromise = audioQueue.shift();
+            try {
+                const blob = await blobPromise;
+                if (cancelled) { finish(); return; }
+                if (blob && blob.size > 0) {
+                    spokenAnything = true;
+                    await self.playAudio(blob);
+                }
+            } catch (e) {
+                console.warn('Streaming TTS playback failed:', e);
+            }
+            if (!cancelled) drain();
+        }
+
+        function enqueue(raw) {
+            const clean = self.cleanForTTS(raw);
+            if (!clean || clean.length < 3) return;
+            prefetch(clean);
+        }
+
+        return {
+            feedToken(token) {
+                if (cancelled) return;
+                buffer += token;
+                let idx = buffer.search(SENTENCE_RE);
+                while (idx >= 0 && buffer.length >= MIN_CHARS) {
+                    const sentence = buffer.slice(0, idx + 1);
+                    buffer = buffer.slice(idx + 1);
+                    enqueue(sentence);
+                    idx = buffer.search(SENTENCE_RE);
+                }
+            },
+            feedCleanText(text) {
+                if (cancelled) return;
+                const clean = text.trim();
+                if (clean && clean.length >= 3) {
+                    prefetch(clean);
+                }
+            },
+            flush() {
+                flushed = true;
+                if (buffer.trim()) {
+                    enqueue(buffer);
+                    buffer = '';
+                }
+                if (!playing && audioQueue.length === 0) finish();
+            },
+            reset() {
+                buffer = '';
+                audioQueue = [];
+                flushed = false;
+                spokenAnything = false;
+            },
+            cancel() {
+                cancelled = true;
+                audioQueue = [];
+                buffer = '';
+                self.cancelSpeech();
+                finish();
+            },
+            didSpeak() {
+                return spokenAnything;
+            },
+            waitForCompletion() {
+                return donePromise;
+            }
+        };
+    },
+
     /**
      * Cancel any ongoing speech
      */

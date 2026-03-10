@@ -40,3 +40,25 @@ desktop.ini
 *.bak
 backend/database/db.pyssss
 backend/openapi_check.json
+
+# Voice reference files (large WAVs)
+backend/voices/*.wav
+
+# Policy documents (confidential)
+backend/documents/
+
+# Test scripts with hardcoded keys
+backend/test_elevenlabs.py
+backend/list_voices.py
+
+# Test audio output
+backend/test_xtts.mp3
+
+# Deployment sync scripts (contain server-specific IPs)
+sync-to-server.sh
+sync-to-server.bat
+sync-to-h200.sh
+sync-to-h200.bat
+
+# Misc scratch files
+readme

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smart-assistant-v9';
+const CACHE_NAME = 'smart-assistant-v23';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -6,6 +6,7 @@ const STATIC_ASSETS = [
     '/js/app.js',
     '/js/api.js',
     '/js/voice.js',
+    '/js/ws-voice.js',
     '/js/ui.js',
     '/manifest.json'
 ];

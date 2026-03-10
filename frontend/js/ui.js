@@ -47,6 +47,11 @@ const UI = {
             'auth.success': 'Connected successfully!',
             'auth.close': 'Close',
             'auth.copied': 'Code copied!',
+            'auth.expired': 'Outlook session expired. Reconnect to sync emails, calendar, and tasks.',
+            'auth.reconnect': 'Reconnect',
+            'auth.notConnected': 'Outlook not connected. Connect to access emails, calendar, and tasks.',
+            'auth.codeExpired': 'Code expired. Please try again.',
+            'auth.retry': 'Get New Code',
             'handsfree.title': 'Hands-Free Mode',
             'handsfree.listening': 'Listening...',
             'handsfree.processing': 'Processing...',
@@ -55,12 +60,49 @@ const UI = {
             'handsfree.error': 'Error occurred',
             'handsfree.exit': 'Exit',
             'handsfree.hint': 'Say "exit" or "stop" to end',
-            'handsfree.start': 'Hands-Free'
+            'handsfree.start': 'Hands-Free',
+            'nav.calendar': 'Calendar',
+            'calendar.title': 'Calendar',
+            'calendar.today': 'Today',
+            'calendar.noEvents': 'No meetings today',
+            'calendar.create': 'Create Meeting',
+            'calendar.subject': 'Subject',
+            'calendar.start': 'Start',
+            'calendar.end': 'End',
+            'calendar.location': 'Location',
+            'calendar.attendees': 'Attendees',
+            'calendar.teams': 'Add Teams Meeting Link',
+            'calendar.notes': 'Notes',
+            'calendar.allDay': 'All Day',
+            'calendar.join': 'Join Teams',
+            'calendar.created': 'Meeting created!',
+            'prompt.todayWork': "Today's Workload",
+            'prompt.unreadEmails': 'Unread Emails',
+            'prompt.pendingTasks': 'Pending Tasks',
+            'prompt.nextMeeting': 'Next Meeting',
+            'prompt.draftReplies': 'Draft Replies',
+            'prompt.weeklyPlan': 'Weekly Plan',
+            'nav.policy': 'Policy Docs',
+            'policy.title': 'Policy Documents',
+            'policy.upload': 'Browse Files',
+            'policy.dragDrop': 'Drag & drop files here or click to browse',
+            'policy.ingest': 'Ingest All Documents',
+            'policy.ingesting': 'Ingesting...',
+            'policy.noDocuments': 'No documents uploaded yet',
+            'policy.deleteConfirm': 'Delete this document?',
+            'policy.stats.documents': 'Documents',
+            'policy.stats.chunks': 'Indexed Chunks',
+            'policy.stats.lastIngestion': 'Last Ingestion',
+            'policy.stats.never': 'Never',
+            'policy.uploadSuccess': 'Document uploaded successfully',
+            'policy.deleteSuccess': 'Document deleted',
+            'policy.ingestSuccess': 'Ingestion complete!'
         },
         ar: {
             'nav.chat': 'المحادثة',
             'nav.emails': 'البريد',
             'nav.tasks': 'المهام',
+            'nav.calendar': 'التقويم',
             'nav.summary': 'الملخص اليومي',
             'connect.outlook': 'ربط Outlook',
             'connect.connected': 'متصل',
@@ -98,6 +140,11 @@ const UI = {
             'auth.success': 'تم الاتصال بنجاح!',
             'auth.close': 'إغلاق',
             'auth.copied': 'تم نسخ الرمز!',
+            'auth.expired': 'انتهت جلسة Outlook. أعد الاتصال لمزامنة البريد والتقويم والمهام.',
+            'auth.reconnect': 'إعادة الاتصال',
+            'auth.notConnected': 'Outlook غير متصل. اتصل للوصول إلى البريد والتقويم والمهام.',
+            'auth.codeExpired': 'انتهت صلاحية الرمز. حاول مرة أخرى.',
+            'auth.retry': 'رمز جديد',
             'handsfree.title': 'وضع التحدث الحر',
             'handsfree.listening': 'جارٍ الاستماع...',
             'handsfree.processing': 'جارٍ المعالجة...',
@@ -106,7 +153,42 @@ const UI = {
             'handsfree.error': 'حدث خطأ',
             'handsfree.exit': 'خروج',
             'handsfree.hint': 'قل "توقف" أو "خروج" للإنهاء',
-            'handsfree.start': 'تحدث حر'
+            'handsfree.start': 'تحدث حر',
+            'calendar.title': 'التقويم',
+            'calendar.today': 'اليوم',
+            'calendar.noEvents': 'لا توجد اجتماعات اليوم',
+            'calendar.create': 'إنشاء اجتماع',
+            'calendar.subject': 'الموضوع',
+            'calendar.start': 'البداية',
+            'calendar.end': 'النهاية',
+            'calendar.location': 'المكان',
+            'calendar.attendees': 'الحضور',
+            'calendar.teams': 'إضافة رابط Teams',
+            'calendar.notes': 'ملاحظات',
+            'calendar.allDay': 'طوال اليوم',
+            'calendar.join': 'انضم عبر Teams',
+            'calendar.created': 'تم إنشاء الاجتماع!',
+            'prompt.todayWork': 'عمل اليوم',
+            'prompt.unreadEmails': 'بريد غير مقروء',
+            'prompt.pendingTasks': 'مهام معلقة',
+            'prompt.nextMeeting': 'الاجتماع القادم',
+            'prompt.draftReplies': 'مسودات الرد',
+            'prompt.weeklyPlan': 'خطة الأسبوع',
+            'nav.policy': 'وثائق السياسة',
+            'policy.title': 'وثائق السياسة',
+            'policy.upload': 'استعراض الملفات',
+            'policy.dragDrop': 'اسحب وأفلت الملفات هنا أو اضغط للاستعراض',
+            'policy.ingest': 'معالجة جميع الوثائق',
+            'policy.ingesting': 'جارٍ المعالجة...',
+            'policy.noDocuments': 'لم يتم رفع أي وثائق بعد',
+            'policy.deleteConfirm': 'حذف هذه الوثيقة؟',
+            'policy.stats.documents': 'الوثائق',
+            'policy.stats.chunks': 'الأجزاء المفهرسة',
+            'policy.stats.lastIngestion': 'آخر معالجة',
+            'policy.stats.never': 'لم تتم بعد',
+            'policy.uploadSuccess': 'تم رفع الوثيقة بنجاح',
+            'policy.deleteSuccess': 'تم حذف الوثيقة',
+            'policy.ingestSuccess': 'تمت المعالجة بنجاح!'
         }
     },
     
@@ -277,26 +359,78 @@ const UI = {
     },
     
     /**
+     * Show the auth-expired / not-connected banner above chat.
+     * @param {'expired'|'not_connected'} reason
+     */
+    showAuthBanner(reason = 'expired') {
+        const banner = document.getElementById('authBanner');
+        if (!banner) return;
+        const textEl = banner.querySelector('.auth-banner-text');
+        if (textEl) {
+            textEl.textContent = reason === 'expired'
+                ? this.t('auth.expired')
+                : this.t('auth.notConnected');
+        }
+        const btn = banner.querySelector('.auth-banner-btn');
+        if (btn) btn.textContent = this.t('auth.reconnect');
+        banner.classList.remove('hidden');
+    },
+
+    hideAuthBanner() {
+        const banner = document.getElementById('authBanner');
+        if (banner) banner.classList.add('hidden');
+    },
+
+    /**
      * Show auth modal with device code
      */
-    showAuthModal(code, verificationUri) {
+    showAuthModal(code, verificationUri, expiresIn = 900) {
         const modal = document.getElementById('authModal');
         const codeEl = document.getElementById('authCode');
         const linkEl = document.getElementById('authLink');
         const statusContainer = document.getElementById('authStatusContainer');
-        
-        // Set the code and link
+
         codeEl.textContent = code;
         linkEl.href = verificationUri;
-        
-        // Reset status to waiting
+
         statusContainer.innerHTML = `
             <div class="auth-waiting">
                 <div class="spinner"></div>
                 <span>${this.t('auth.waiting')}</span>
+                <span class="auth-timer" id="authTimer"></span>
             </div>
         `;
-        
+
+        if (this._authTimerInterval) clearInterval(this._authTimerInterval);
+        let remaining = expiresIn;
+        const timerEl = document.getElementById('authTimer');
+        const tick = () => {
+            if (remaining <= 0) {
+                clearInterval(this._authTimerInterval);
+                this._authTimerInterval = null;
+                statusContainer.innerHTML = `
+                    <div class="auth-expired-notice">
+                        <span>${this.t('auth.codeExpired')}</span>
+                        <button class="auth-retry-btn" id="authRetryBtn">${this.t('auth.retry')}</button>
+                    </div>
+                `;
+                document.getElementById('authRetryBtn')?.addEventListener('click', () => {
+                    if (typeof App !== 'undefined') {
+                        this.hideAuthModal();
+                        App.isAuthenticated = false;
+                        App.connectOutlook();
+                    }
+                });
+                return;
+            }
+            const m = Math.floor(remaining / 60);
+            const s = remaining % 60;
+            if (timerEl) timerEl.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+            remaining--;
+        };
+        tick();
+        this._authTimerInterval = setInterval(tick, 1000);
+
         modal.classList.add('visible');
     },
     
@@ -304,6 +438,10 @@ const UI = {
      * Hide auth modal
      */
     hideAuthModal() {
+        if (this._authTimerInterval) {
+            clearInterval(this._authTimerInterval);
+            this._authTimerInterval = null;
+        }
         document.getElementById('authModal').classList.remove('visible');
     },
     
@@ -330,17 +468,32 @@ const UI = {
         
         const messageRow = document.createElement('div');
         messageRow.className = `message-row ${isUser ? 'user' : 'assistant'}`;
-        
-        // Format content for assistant messages
-        const formattedContent = isUser ? this.escapeHtml(content) : this.formatAssistantMessage(content);
+
+        let thinkHtml = '';
+        let cleanContent = content;
+        if (!isUser) {
+            const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
+            if (thinkMatch) {
+                const escapedThink = this.escapeHtml(thinkMatch[1].trim());
+                thinkHtml = `<details class="thinking-block"><summary class="thinking-summary"><span class="thinking-icon">💭</span> Thought process</summary><pre class="thinking-content">${escapedThink}</pre></details>`;
+                cleanContent = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            }
+        }
+
+        const formattedContent = isUser ? this.escapeHtml(cleanContent) : this.formatAssistantMessage(cleanContent);
         
         if (!isUser) {
             messageRow.innerHTML = `
                 <div class="assistant-avatar">🤖</div>
                 <div class="message-bubble assistant">
+                    ${thinkHtml}
                     <div class="message-content">${formattedContent}</div>
+                    <button class="speak-msg-btn" aria-label="Listen" title="Listen">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    </button>
                 </div>
             `;
+            messageRow._rawContent = cleanContent;
         } else {
             messageRow.innerHTML = `
                 <div class="message-bubble user">
@@ -351,13 +504,180 @@ const UI = {
         
         chatMessages.appendChild(messageRow);
         chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        if (!isUser) {
+            const speakBtn = messageRow.querySelector('.speak-msg-btn');
+            if (speakBtn) {
+                speakBtn.addEventListener('click', () => {
+                    if (typeof Voice !== 'undefined' && Voice.speak) {
+                        Voice.cancelSpeech();
+                        Voice.speak(Voice.cleanForTTS(cleanContent), this.currentLanguage);
+                    }
+                });
+            }
+        }
     },
     
+    /**
+     * Create an empty assistant message bubble for streaming.
+     * Returns a handle object used by appendToStreamingMessage / finalizeStreamingMessage.
+     */
+    addStreamingMessage() {
+        const chatMessages = document.getElementById('chatMessages');
+
+        const messageRow = document.createElement('div');
+        messageRow.className = 'message-row assistant';
+        messageRow.innerHTML = `
+            <div class="assistant-avatar">🤖</div>
+            <div class="message-bubble assistant">
+                <div class="message-content streaming-content"></div>
+            </div>
+        `;
+        chatMessages.appendChild(messageRow);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        const contentEl = messageRow.querySelector('.message-content');
+        return { messageRow, contentEl, _raw: '', _thinking: false, _thinkBuf: '' };
+    },
+
+    appendToStreamingMessage(handle, token) {
+        handle._raw += token;
+        handle.contentEl.textContent = handle._raw;
+        const chatMessages = document.getElementById('chatMessages');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    },
+
+    startThinkingBlock(handle) {
+        handle._thinking = true;
+        handle._thinkBuf = '';
+        let thinkEl = handle.messageRow.querySelector('.thinking-block');
+        if (!thinkEl) {
+            thinkEl = document.createElement('details');
+            thinkEl.className = 'thinking-block';
+            thinkEl.innerHTML = '<summary class="thinking-summary"><span class="thinking-icon">💭</span> Thinking…</summary><pre class="thinking-content"></pre>';
+            handle.contentEl.parentNode.insertBefore(thinkEl, handle.contentEl);
+        }
+    },
+
+    appendThinkingToken(handle, token) {
+        handle._thinkBuf += token;
+        const thinkContentEl = handle.messageRow.querySelector('.thinking-content');
+        if (thinkContentEl) {
+            thinkContentEl.textContent = handle._thinkBuf;
+        }
+        const chatMessages = document.getElementById('chatMessages');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    },
+
+    endThinkingBlock(handle) {
+        handle._thinking = false;
+        const summary = handle.messageRow.querySelector('.thinking-summary');
+        if (summary) {
+            summary.innerHTML = '<span class="thinking-icon">💭</span> Thought process';
+        }
+    },
+
+    clearStreamingMessage(handle) {
+        handle._raw = '';
+        handle._thinkBuf = '';
+        handle.contentEl.textContent = '';
+        const thinkEl = handle.messageRow.querySelector('.thinking-block');
+        if (thinkEl) thinkEl.remove();
+    },
+
+    /**
+     * Finalize a streaming message: replace raw text with fully formatted HTML, add speak button.
+     */
+    finalizeStreamingMessage(handle, fullContent) {
+        const raw = fullContent || handle._raw;
+        const thinkContent = handle._thinkBuf || '';
+
+        const cleanRaw = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        const formatted = this.formatAssistantMessage(cleanRaw);
+
+        let thinkHtml = '';
+        if (thinkContent.trim()) {
+            const escapedThink = this.escapeHtml(thinkContent.trim());
+            thinkHtml = `<details class="thinking-block"><summary class="thinking-summary"><span class="thinking-icon">💭</span> Thought process</summary><pre class="thinking-content">${escapedThink}</pre></details>`;
+        }
+
+        handle.messageRow.querySelector('.message-bubble').innerHTML = `
+            ${thinkHtml}
+            <div class="message-content">${formatted}</div>
+            <button class="speak-msg-btn" aria-label="Listen" title="Listen">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+            </button>
+        `;
+        handle.messageRow._rawContent = cleanRaw;
+
+        const speakBtn = handle.messageRow.querySelector('.speak-msg-btn');
+        if (speakBtn) {
+            speakBtn.addEventListener('click', () => {
+                if (typeof Voice !== 'undefined' && Voice.speak) {
+                    Voice.cancelSpeech();
+                    Voice.speak(Voice.cleanForTTS(cleanRaw), this.currentLanguage);
+                }
+            });
+        }
+
+        const chatMessages = document.getElementById('chatMessages');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    },
+
+    /**
+     * Strip markdown/formatting characters for clean TTS reading
+     */
+    stripMarkdownForTTS(text) {
+        let clean = text;
+        // Remove code block fences and their content markers
+        clean = clean.replace(/```[\s\S]*?```/g, '');
+        // Remove inline code backticks
+        clean = clean.replace(/`([^`]+)`/g, '$1');
+        // Remove images before links
+        clean = clean.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1');
+        // Remove links, keep text: [text](url) -> text
+        clean = clean.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+        // Remove markdown headers (# ## ### etc.)
+        clean = clean.replace(/^#{1,6}\s*/gm, '');
+        // Remove bold markers (** or __)
+        clean = clean.replace(/\*\*([^*]+)\*\*/g, '$1');
+        clean = clean.replace(/__([^_]+)__/g, '$1');
+        // Remove italic markers (* or _)
+        clean = clean.replace(/\*([^*]+)\*/g, '$1');
+        clean = clean.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '$1');
+        // Remove strikethrough
+        clean = clean.replace(/~~([^~]+)~~/g, '$1');
+        // Clean any remaining stray asterisks used as formatting
+        clean = clean.replace(/\*+/g, '');
+        // Clean any remaining stray underscores between words
+        clean = clean.replace(/(?<=\s)_+|_+(?=\s)/g, '');
+        // Remove horizontal rules
+        clean = clean.replace(/^[-*_]{3,}\s*$/gm, '');
+        // Remove blockquote markers
+        clean = clean.replace(/^>\s*/gm, '');
+        // Clean bullet/dash markers at line start
+        clean = clean.replace(/^\s*[-*+]\s+/gm, '');
+        // Clean numbered list markers but keep the number
+        clean = clean.replace(/^(\s*\d+)\.\s+/gm, '$1: ');
+        // Remove hash symbols that may remain
+        clean = clean.replace(/#/g, '');
+        // Collapse multiple blank lines
+        clean = clean.replace(/\n{3,}/g, '\n\n');
+        // Clean up multiple spaces
+        clean = clean.replace(/  +/g, ' ');
+        return clean.trim();
+    },
+
     /**
      * Format assistant message with proper structure
      */
     formatAssistantMessage(content) {
         let formatted = this.escapeHtml(content);
+        
+        // Convert ### headers (do before bold/italic to avoid conflicts)
+        formatted = formatted.replace(/^###\s+(.+)$/gm, '<h4 class="msg-heading">$1</h4>');
+        formatted = formatted.replace(/^##\s+(.+)$/gm, '<h3 class="msg-heading">$1</h3>');
+        formatted = formatted.replace(/^#\s+(.+)$/gm, '<h3 class="msg-heading msg-heading-lg">$1</h3>');
         
         // Convert **text** to bold
         formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -366,21 +686,21 @@ const UI = {
         formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
         
         // Convert numbered lists (1. 2. 3. etc) - handle "Email 1:" pattern
-        formatted = formatted.replace(/(\d+)\.\s*\*\*([^*]+)\*\*/g, '<div class="list-item"><span class="item-number">$1.</span> <strong>$2</strong></div>');
+        formatted = formatted.replace(/(\d+)\.\s*<strong>([^<]+)<\/strong>/g, '<div class="list-item"><span class="item-number">$1.</span> <strong>$2</strong></div>');
         
         // Convert bullet points with dashes
         formatted = formatted.replace(/^- (.+)$/gm, '<div class="bullet-item">• $1</div>');
         formatted = formatted.replace(/\n- /g, '<div class="bullet-item">• ');
         
         // Convert sections with colons to structured format
-        formatted = formatted.replace(/- (From|Subject|Date|Key Points|Urgency|Status|Priority|Description|Due):\s*/g, '<br><span class="label">$1:</span> ');
+        formatted = formatted.replace(/- (From|Subject|Date|Key Points|Urgency|Status|Priority|Description|Due|Time|Location|Attendees|Organizer|Teams Link|Action|Response Needed):\s*/gi, '<br><span class="label">$1:</span> ');
         
         // Handle newlines - convert to proper line breaks
         formatted = formatted.replace(/\n\n/g, '</p><p>');
         formatted = formatted.replace(/\n/g, '<br>');
         
         // Wrap in paragraph if not already structured
-        if (!formatted.includes('<div') && !formatted.includes('<p>')) {
+        if (!formatted.includes('<div') && !formatted.includes('<h3') && !formatted.includes('<h4') && !formatted.includes('<p>')) {
             formatted = `<p>${formatted}</p>`;
         } else if (!formatted.startsWith('<')) {
             formatted = `<p>${formatted}</p>`;
@@ -503,6 +823,106 @@ const UI = {
                 ` : ''}
             </div>
         `).join('');
+    },
+    
+    /**
+     * Render calendar events
+     */
+    renderCalendarEvents(events) {
+        const list = document.getElementById('calendarEventList');
+        if (!list) return;
+        
+        // Update date header
+        const dateEl = document.getElementById('calendarDate');
+        if (dateEl) {
+            const locale = this.currentLanguage === 'ar' ? 'ar-SA' : 'en-US';
+            dateEl.textContent = new Date().toLocaleDateString(locale, {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+            });
+        }
+        
+        if (!events || events.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" width="64" height="64">
+                        <path fill="currentColor" d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/>
+                    </svg>
+                    <p>${this.t('calendar.noEvents')}</p>
+                </div>
+            `;
+            return;
+        }
+        
+        list.innerHTML = events.map(ev => {
+            const start = ev.start_time ? new Date(ev.start_time) : null;
+            const end = ev.end_time ? new Date(ev.end_time) : null;
+            const startStr = start ? start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const endStr = end ? end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            
+            const status = ev.status || 'none';
+            const attendees = ev.attendees ? JSON.parse(ev.attendees) : [];
+            
+            let teamsLink = '';
+            if (ev.is_online && ev.online_meeting_url) {
+                teamsLink = `<a href="${this.escapeHtml(ev.online_meeting_url)}" target="_blank" class="event-teams-link">
+                    <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 19H5V5h7V3H5a2 2 0 00-2 2v14a2 2 0 002 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+                    ${this.t('calendar.join')}
+                </a>`;
+            }
+            
+            const timeBadge = ev.is_all_day
+                ? `<div class="event-time-badge all-day"><span class="time-start">${this.t('calendar.allDay')}</span></div>`
+                : `<div class="event-time-badge"><span class="time-start">${startStr}</span><span class="time-end">${endStr}</span></div>`;
+            
+            const locationHtml = ev.location
+                ? `<span class="event-meta-item"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>${this.escapeHtml(ev.location)}</span>`
+                : '';
+            
+            const attendeeHtml = attendees.length
+                ? `<span class="event-meta-item"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${attendees.length}</span>`
+                : '';
+            
+            return `
+                <div class="event-card" data-id="${ev.id}">
+                    <div class="event-status-indicator ${status}"></div>
+                    ${timeBadge}
+                    <div class="event-details">
+                        <div class="event-subject">${this.escapeHtml(ev.subject)}</div>
+                        <div class="event-meta">
+                            ${locationHtml}
+                            ${attendeeHtml}
+                        </div>
+                        ${teamsLink}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    },
+    
+    showCreateEventModal() {
+        const modal = document.getElementById('createEventModal');
+        if (modal) {
+            modal.classList.add('visible');
+            // Set default start time to next hour
+            const now = new Date();
+            now.setMinutes(0, 0, 0);
+            now.setHours(now.getHours() + 1);
+            const end = new Date(now.getTime() + 60 * 60 * 1000);
+            
+            const fmt = d => d.toISOString().slice(0, 16);
+            document.getElementById('eventStart').value = fmt(now);
+            document.getElementById('eventEnd').value = fmt(end);
+        }
+    },
+    
+    hideCreateEventModal() {
+        const modal = document.getElementById('createEventModal');
+        if (modal) {
+            modal.classList.remove('visible');
+            document.getElementById('createEventForm').reset();
+            document.getElementById('selectedAttendees').innerHTML = '';
+            document.getElementById('contactDropdown').classList.remove('visible');
+        }
     },
     
     /**
@@ -652,6 +1072,102 @@ const UI = {
         transcriptEl.innerHTML = `<span class="${className}">${icon} ${this.escapeHtml(text)}</span>`;
         transcriptEl.classList.add('has-content');
         transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    },
+    
+    // ============ Policy Documents UI ============
+    
+    renderPolicyDocuments(fileDetails) {
+        const list = document.getElementById('policyDocList');
+        if (!list) return;
+        
+        if (!fileDetails || fileDetails.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" width="64" height="64">
+                        <path fill="currentColor" d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <p>${this.t('policy.noDocuments')}</p>
+                </div>
+            `;
+            return;
+        }
+        
+        list.innerHTML = fileDetails.map(f => {
+            const sizeStr = f.size_bytes < 1024
+                ? f.size_bytes + ' B'
+                : f.size_bytes < 1048576
+                    ? (f.size_bytes / 1024).toFixed(1) + ' KB'
+                    : (f.size_bytes / 1048576).toFixed(1) + ' MB';
+            
+            return `
+                <div class="policy-doc-item" data-filename="${this.escapeHtml(f.name)}">
+                    <div class="policy-doc-icon ${this.escapeHtml(f.type)}">${this.escapeHtml(f.type)}</div>
+                    <div class="policy-doc-info">
+                        <div class="policy-doc-name" title="${this.escapeHtml(f.name)}">${this.escapeHtml(f.name)}</div>
+                        <div class="policy-doc-size">${sizeStr}</div>
+                    </div>
+                    <button class="policy-doc-delete" data-name="${this.escapeHtml(f.name)}" title="Delete">
+                        <svg viewBox="0 0 24 24" width="18" height="18">
+                            <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    },
+    
+    updatePolicyStats(status) {
+        const docCount = document.getElementById('policyDocCount');
+        const chunkCount = document.getElementById('policyChunkCount');
+        const lastIngestion = document.getElementById('policyLastIngestion');
+        
+        if (docCount) docCount.textContent = status.document_count || 0;
+        if (chunkCount) chunkCount.textContent = status.indexed_chunks || 0;
+        if (lastIngestion) {
+            if (status.last_ingestion) {
+                const d = new Date(status.last_ingestion);
+                const locale = this.currentLanguage === 'ar' ? 'ar-SA' : 'en-US';
+                lastIngestion.textContent = d.toLocaleString(locale, {
+                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+            } else {
+                lastIngestion.textContent = this.t('policy.stats.never');
+            }
+        }
+    },
+    
+    setPolicyIngestProgress(state, result) {
+        const btn = document.getElementById('ingestBtn');
+        const resultEl = document.getElementById('ingestResult');
+        if (!btn) return;
+        
+        switch (state) {
+            case 'loading':
+                btn.disabled = true;
+                btn.innerHTML = `<div class="spinner"></div> ${this.t('policy.ingesting')}`;
+                if (resultEl) { resultEl.textContent = ''; resultEl.className = 'ingest-result'; }
+                break;
+            case 'success':
+                btn.disabled = false;
+                btn.textContent = this.t('policy.ingest');
+                if (resultEl && result) {
+                    resultEl.className = 'ingest-result success';
+                    resultEl.textContent = `${this.t('policy.ingestSuccess')} ${result.chunks} chunks from ${result.documents} file(s)`;
+                }
+                break;
+            case 'error':
+                btn.disabled = false;
+                btn.textContent = this.t('policy.ingest');
+                if (resultEl) {
+                    resultEl.className = 'ingest-result error';
+                    resultEl.textContent = result || 'Ingestion failed';
+                }
+                break;
+            default:
+                btn.disabled = false;
+                btn.textContent = this.t('policy.ingest');
+                if (resultEl) { resultEl.textContent = ''; resultEl.className = 'ingest-result'; }
+        }
     }
 };
 

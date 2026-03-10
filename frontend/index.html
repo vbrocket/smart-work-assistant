@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#1a73e8">
+    <meta name="theme-color" content="#4F008C">
     <meta name="description" content="AI-powered assistant for managing meetings and emails with voice interaction">
     
     <!-- PWA -->
@@ -13,7 +13,7 @@
     <!-- Styles -->
     <link rel="stylesheet" href="css/styles.css">
     
-    <title>Smart Work Assistant</title>
+    <title>stc AI Work Assistant</title>
 </head>
 <body>
     <div id="app">
@@ -25,7 +25,7 @@
                         <path fill="currentColor" d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
                     </svg>
                 </button>
-                <h1 class="app-title">Smart Assistant</h1>
+                <h1 class="app-title">stc AI Work Assistant</h1>
             </div>
             <div class="header-right">
                 <button id="langToggle" class="lang-btn" aria-label="Toggle Language">
@@ -37,8 +37,8 @@
         <!-- Navigation Sidebar -->
         <nav id="sidebar" class="sidebar">
             <div class="sidebar-header">
-                <span class="logo">🤖</span>
-                <span class="sidebar-title">Smart Assistant</span>
+                <span class="logo" style="font-weight:700;color:#4F008C;font-size:1.5rem;letter-spacing:-0.5px;">stc</span>
+                <span class="sidebar-title">AI Work Assistant</span>
             </div>
             <ul class="nav-list">
                 <li class="nav-item active" data-view="chat">
@@ -58,6 +58,18 @@
                         <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                     </svg>
                     <span data-i18n="nav.tasks">Tasks</span>
+                </li>
+                <li class="nav-item" data-view="calendar">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path fill="currentColor" d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/>
+                    </svg>
+                    <span data-i18n="nav.calendar">Calendar</span>
+                </li>
+                <li class="nav-item" data-view="policy">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path fill="currentColor" d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                    <span data-i18n="nav.policy">Policy Docs</span>
                 </li>
                 <li class="nav-item" data-view="summary">
                     <svg viewBox="0 0 24 24" width="20" height="20">
@@ -83,6 +95,16 @@
         <main class="main-content">
             <!-- Chat View -->
             <div id="chatView" class="view active">
+                <div id="authBanner" class="auth-banner hidden">
+                    <div class="auth-banner-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                    </div>
+                    <span class="auth-banner-text" data-i18n="auth.expired">Outlook session expired. Reconnect to sync emails, calendar, and tasks.</span>
+                    <button id="authBannerReconnect" class="auth-banner-btn" data-i18n="auth.reconnect">Reconnect</button>
+                    <button id="authBannerDismiss" class="auth-banner-dismiss" aria-label="Dismiss">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                    </button>
+                </div>
                 <div id="chatMessages" class="chat-messages">
                     <div class="welcome-message">
                         <div class="assistant-avatar">🤖</div>
@@ -92,6 +114,33 @@
                     </div>
                 </div>
                 
+                <div id="quickPrompts" class="quick-prompts">
+                    <button class="prompt-chip" data-prompt="today_work">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+                        <span data-i18n="prompt.todayWork">Today's Workload</span>
+                    </button>
+                    <button class="prompt-chip" data-prompt="unread_emails">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                        <span data-i18n="prompt.unreadEmails">Unread Emails</span>
+                    </button>
+                    <button class="prompt-chip" data-prompt="pending_tasks">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        <span data-i18n="prompt.pendingTasks">Pending Tasks</span>
+                    </button>
+                    <button class="prompt-chip" data-prompt="next_meeting">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>
+                        <span data-i18n="prompt.nextMeeting">Next Meeting</span>
+                    </button>
+                    <button class="prompt-chip" data-prompt="draft_replies">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                        <span data-i18n="prompt.draftReplies">Draft Replies</span>
+                    </button>
+                    <button class="prompt-chip" data-prompt="weekly_plan">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
+                        <span data-i18n="prompt.weeklyPlan">Weekly Plan</span>
+                    </button>
+                </div>
+
                 <div class="chat-input-container">
                     <div class="chat-input-wrapper">
                         <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." data-i18n-placeholder="chat.placeholder">
@@ -155,6 +204,140 @@
                             <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                         </svg>
                         <p data-i18n="tasks.empty">No tasks yet</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calendar View -->
+            <div id="calendarView" class="view">
+                <div class="view-header">
+                    <h2 data-i18n="calendar.title">Calendar</h2>
+                    <button id="refreshCalendar" class="refresh-btn">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                        </svg>
+                    </button>
+                </div>
+                <p id="calendarDate" class="calendar-date"></p>
+                <div id="calendarEventList" class="calendar-event-list">
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" width="64" height="64">
+                            <path fill="currentColor" d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/>
+                        </svg>
+                        <p data-i18n="calendar.noEvents">No meetings today</p>
+                    </div>
+                </div>
+                <button id="createEventBtn" class="create-event-fab" aria-label="Create Meeting">
+                    <svg viewBox="0 0 24 24" width="28" height="28">
+                        <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Create Event Modal -->
+            <div id="createEventModal" class="modal">
+                <div class="modal-content create-event-modal">
+                    <div class="modal-header">
+                        <h3 data-i18n="calendar.create">Create Meeting</h3>
+                        <button id="closeCreateEventModal" class="close-modal-btn">
+                            <svg viewBox="0 0 24 24" width="24" height="24">
+                                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <form id="createEventForm" class="event-form">
+                        <div class="form-group">
+                            <label data-i18n="calendar.subject">Subject</label>
+                            <input type="text" id="eventSubject" required placeholder="Meeting title...">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label data-i18n="calendar.start">Start</label>
+                                <input type="datetime-local" id="eventStart" required>
+                            </div>
+                            <div class="form-group">
+                                <label data-i18n="calendar.end">End</label>
+                                <input type="datetime-local" id="eventEnd" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="calendar.location">Location</label>
+                            <input type="text" id="eventLocation" placeholder="Room / Address...">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="calendar.attendees">Attendees</label>
+                            <div class="attendee-picker">
+                                <div id="selectedAttendees" class="attendee-chips"></div>
+                                <input type="text" id="attendeeSearch" placeholder="Search contacts or type email..." autocomplete="off">
+                                <div id="contactDropdown" class="contact-dropdown"></div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="calendar.notes">Notes</label>
+                            <textarea id="eventBody" rows="3" placeholder="Meeting agenda..."></textarea>
+                        </div>
+                        <div class="form-group form-toggle">
+                            <label data-i18n="calendar.teams">Add Teams Meeting Link</label>
+                            <input type="checkbox" id="eventOnline" checked>
+                        </div>
+                        <button type="submit" class="submit-event-btn" data-i18n="calendar.create">Create Meeting</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Policy Documents View -->
+            <div id="policyView" class="view">
+                <div class="view-header">
+                    <h2 data-i18n="policy.title">Policy Documents</h2>
+                    <button id="refreshPolicy" class="refresh-btn">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="policy-content">
+                    <!-- Stats -->
+                    <div class="policy-stats">
+                        <div class="stat-card">
+                            <span class="stat-value" id="policyDocCount">0</span>
+                            <span class="stat-label" data-i18n="policy.stats.documents">Documents</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="policyChunkCount">0</span>
+                            <span class="stat-label" data-i18n="policy.stats.chunks">Indexed Chunks</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="policyLastIngestion">-</span>
+                            <span class="stat-label" data-i18n="policy.stats.lastIngestion">Last Ingestion</span>
+                        </div>
+                    </div>
+
+                    <!-- Upload Zone -->
+                    <div id="uploadZone" class="upload-zone">
+                        <svg viewBox="0 0 24 24" width="48" height="48" class="upload-icon">
+                            <path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+                        </svg>
+                        <p class="upload-text" data-i18n="policy.dragDrop">Drag & drop files here or click to browse</p>
+                        <p class="upload-hint">PDF, DOCX, TXT</p>
+                        <input type="file" id="policyFileInput" accept=".pdf,.docx,.txt,.md" multiple hidden>
+                        <button id="policyBrowseBtn" class="upload-browse-btn" data-i18n="policy.upload">Browse Files</button>
+                    </div>
+
+                    <!-- Document List -->
+                    <div id="policyDocList" class="policy-doc-list">
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" width="64" height="64">
+                                <path fill="currentColor" d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                            </svg>
+                            <p data-i18n="policy.noDocuments">No documents uploaded yet</p>
+                        </div>
+                    </div>
+
+                    <!-- Ingest Section -->
+                    <div class="ingest-section">
+                        <button id="ingestBtn" class="ingest-btn" data-i18n="policy.ingest">Ingest All Documents</button>
+                        <div id="ingestResult" class="ingest-result"></div>
                     </div>
                 </div>
             </div>
@@ -298,6 +481,7 @@
     <!-- Scripts -->
     <script src="js/api.js"></script>
     <script src="js/voice.js"></script>
+    <script src="js/ws-voice.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/app.js"></script>
 </body>

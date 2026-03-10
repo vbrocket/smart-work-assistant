@@ -1,6 +1,8 @@
 """
 Email Router - Handles Outlook email operations
 """
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional
@@ -8,13 +10,15 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from database import get_db, User, Email, Task, TaskStatus, TaskPriority
+from database import get_db, AsyncSessionLocal, User, Email, Task, TaskStatus, TaskPriority
 from services.outlook_service import get_outlook_service, OutlookService
 from services.llm_service import get_llm_service, LLMService
 from services.logger import get_email_logger
 
 router = APIRouter()
 logger = get_email_logger()
+
+_device_code_bg_task: Optional[asyncio.Task] = None
 
 
 # ============ Pydantic Models ============
@@ -69,6 +73,7 @@ class AuthStatusResponse(BaseModel):
     authenticated: bool
     email: Optional[str] = None
     name: Optional[str] = None
+    was_connected: bool = False
 
 
 class SummarizeResponse(BaseModel):
@@ -97,21 +102,48 @@ async def get_current_user(db: AsyncSession) -> Optional[User]:
 
 # ============ Authentication Endpoints ============
 
+async def _bg_acquire_token():
+    """Background coroutine that waits for the user to complete device-code
+    auth on Microsoft's side, then saves the resulting tokens to the DB."""
+    outlook_service = get_outlook_service()
+    logger.info("Background device-code polling started (timeout=900s)")
+    try:
+        async with AsyncSessionLocal() as db:
+            success, user = await outlook_service.complete_device_code_flow(
+                db=db, timeout=900,
+            )
+            if success and user:
+                logger.info("Background device-code auth succeeded for %s", user.email)
+            else:
+                logger.warning("Background device-code auth failed or timed out (success=%s)", success)
+    except Exception as exc:
+        logger.error("Background device-code auth error: %s", exc, exc_info=True)
+
+
 @router.get("/auth/device-code", response_model=DeviceCodeResponse)
 async def start_device_code_flow():
+    """Start Microsoft OAuth device code flow.
+
+    Returns a code for the user to enter at microsoft.com/devicelogin.
+    Automatically begins polling Microsoft for the token in the background
+    so no separate ``/auth/complete`` call is needed.
     """
-    Start Microsoft OAuth device code flow.
-    Returns a code for the user to enter at microsoft.com/devicelogin
-    """
+    global _device_code_bg_task
+
     outlook_service = get_outlook_service()
-    
+
     try:
         flow = await outlook_service.start_device_code_flow()
-        return DeviceCodeResponse(**flow)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start auth flow: {str(e)}")
+
+    if _device_code_bg_task and not _device_code_bg_task.done():
+        _device_code_bg_task.cancel()
+    _device_code_bg_task = asyncio.create_task(_bg_acquire_token())
+
+    return DeviceCodeResponse(**flow)
 
 
 @router.post("/auth/complete")
@@ -119,49 +151,64 @@ async def complete_device_code_flow(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
+    """Legacy endpoint — kept for backwards compatibility.
+
+    The background polling is now started automatically by ``/auth/device-code``.
+    If a background task is already running, this just returns a status message.
     """
-    Wait for user to complete device code authentication.
-    This endpoint blocks until the user completes authentication or times out.
-    """
+    if _device_code_bg_task and not _device_code_bg_task.done():
+        return {"status": "polling", "message": "Already polling for auth completion"}
+
     outlook_service = get_outlook_service()
-    
     try:
         success, user = await outlook_service.complete_device_code_flow(
-            db=db,
-            timeout=300  # 5 minutes
+            db=db, timeout=300,
         )
-        
         if success and user:
-            return {
-                "status": "authenticated",
-                "email": user.email,
-                "name": user.name
-            }
+            return {"status": "authenticated", "email": user.email, "name": user.name}
         else:
-            raise HTTPException(
-                status_code=401,
-                detail="Authentication failed or timed out"
-            )
+            raise HTTPException(status_code=401, detail="Authentication failed or timed out")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/auth/status", response_model=AuthStatusResponse)
 async def get_auth_status(db: AsyncSession = Depends(get_db)):
-    """Check if user is authenticated with Microsoft."""
+    """Check if user is authenticated with Microsoft.
+
+    If the stored token has expired, we attempt a silent refresh.
+    On failure the stale tokens are cleared so the UI shows
+    "not connected" and offers the login button.
+    """
     user = await get_current_user(db)
-    
+
     if user and user.access_token:
+        outlook_service = get_outlook_service()
+        try:
+            await outlook_service.refresh_token_if_needed(db, user)
+        except Exception:
+            user.access_token = None
+            user.refresh_token = None
+            user.token_expires_at = None
+            await db.commit()
+            logger.warning("Stale Outlook token cleared for %s — re-auth required", user.email)
+            return AuthStatusResponse(
+                authenticated=False, email=None, name=None, was_connected=True,
+            )
+
         return AuthStatusResponse(
             authenticated=True,
             email=user.email,
-            name=user.name
+            name=user.name,
+            was_connected=True,
         )
-    
+
+    has_user = user is not None
     return AuthStatusResponse(
         authenticated=False,
         email=None,
-        name=None
+        name=None,
+        was_connected=has_user,
     )
 
 

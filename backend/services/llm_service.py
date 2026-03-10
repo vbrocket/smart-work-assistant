@@ -1,65 +1,153 @@
 """
-LLM Service using Ollama
-Supports bilingual (Arabic/English) conversation with smart prompts
-"""
-import asyncio
-import json
-from typing import Optional, List, Dict, Any
-from datetime import datetime
+LLM Service - Bilingual (Arabic/English) conversation with smart prompts.
 
-try:
-    import httpx
-    HTTPX_AVAILABLE = True
-except ImportError:
-    HTTPX_AVAILABLE = False
+Delegates all model calls to an LLMProvider (Ollama, HuggingFace, or OpenRouter)
+selected by the LLM_BACKEND env variable.
+"""
+import json
+import re
+from typing import AsyncIterator, Optional, List, Dict, Any
+from datetime import datetime, date as date_type, timedelta
 
 from config import get_settings
+from services.llm_provider import create_llm_provider, LLMProvider
 from services.logger import get_llm_logger
 
 settings = get_settings()
 logger = get_llm_logger()
 
 
+def _log_messages(tag: str, messages: list):
+    """Log the full messages array sent to the LLM (DEBUG level -> log file only)."""
+    separator = "=" * 60
+    parts = [f"\n{separator}", f"LLM PROMPT [{tag}]  ({len(messages)} messages)", separator]
+    for i, msg in enumerate(messages):
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        parts.append(f"--- [{i}] {role} ({len(content)} chars) ---")
+        parts.append(content)
+    parts.append(separator)
+    logger.debug("\n".join(parts))
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
+
+_AR_MONTHS = {
+    1: "يناير", 2: "فبراير", 3: "مارس", 4: "أبريل",
+    5: "مايو", 6: "يونيو", 7: "يوليو", 8: "أغسطس",
+    9: "سبتمبر", 10: "أكتوبر", 11: "نوفمبر", 12: "ديسمبر",
+}
+
+_PRIORITY_ORDER = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _parse_dt(value) -> Optional[datetime]:
+    """Best-effort parse of a datetime value (str, datetime, or None)."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def _format_time(dt: Optional[datetime]) -> str:
+    if dt is None:
+        return "?"
+    return dt.strftime("%I:%M %p").lstrip("0")
+
+
+def _format_datetime_en(value) -> str:
+    dt = _parse_dt(value)
+    if dt is None:
+        return "Unknown"
+    today = date_type.today()
+    if dt.date() == today:
+        return f"Today {_format_time(dt)}"
+    if dt.date() == today - timedelta(days=1):
+        return f"Yesterday {_format_time(dt)}"
+    return f"{dt.strftime('%b %d')}, {_format_time(dt)}"
+
+
+def _format_datetime_ar(value) -> str:
+    dt = _parse_dt(value)
+    if dt is None:
+        return "غير معروف"
+    today = date_type.today()
+    t = _format_time(dt)
+    if dt.date() == today:
+        return f"اليوم {t}"
+    if dt.date() == today - timedelta(days=1):
+        return f"أمس {t}"
+    month = _AR_MONTHS.get(dt.month, str(dt.month))
+    return f"{dt.day} {month}, {t}"
+
+
+def _clean_preview(text: str, max_len: int = 150) -> str:
+    """Strip HTML, collapse whitespace, truncate at a word boundary."""
+    if not text:
+        return ""
+    t = re.sub(r'<[^>]+>', '', text)
+    t = re.sub(r'[\r\n\t]+', ' ', t)
+    t = re.sub(r'\s{2,}', ' ', t).strip()
+    if len(t) > max_len:
+        t = t[:max_len].rsplit(' ', 1)[0] + '...'
+    return t
+
+
 class LLMService:
-    """Service for LLM interactions using Ollama."""
+    """Service for LLM interactions via a pluggable provider."""
     
-    # System prompts for the assistant
     SYSTEM_PROMPTS = {
-        'en': """You are a Smart Work Assistant, an AI-powered companion designed to help employees manage their work efficiently.
+        'en': """You are a Smart Work Assistant. You help the user manage their workday by answering questions about their emails, calendar, and tasks using ONLY the data provided below.
 
-Your capabilities:
-- Help manage and summarize emails
-- Extract actionable tasks from communications
-- Draft professional email replies
-- Provide daily summaries and weekly planning
-- Answer questions about tasks and priorities
+Rules:
+- Be direct and concise. Lead with what matters most.
+- Never invent, fabricate, or hallucinate any data.
+- Use specific names, times, and subjects from the data.
+- Match the user's language.
 
-Guidelines:
-- Be concise and professional
-- When extracting tasks, identify specific actions with clear descriptions
-- For email summaries, highlight key points, sentiment, and urgency
-- Match the user's language (respond in English if they write in English)
-- Be helpful but respect that final decisions are made by the user
+Today: {date}""",
 
-Current date: {date}""",
+        'ar': """أنت مساعد العمل الذكي. تساعد المستخدم في إدارة يوم عمله بالإجابة على أسئلته حول البريد الإلكتروني والتقويم والمهام باستخدام البيانات المقدمة أدناه فقط.
 
-        'ar': """أنت مساعد العمل الذكي، رفيق مدعوم بالذكاء الاصطناعي مصمم لمساعدة الموظفين على إدارة عملهم بكفاءة.
+القواعد:
+- كن مباشراً وموجزاً. ابدأ بالأهم.
+- ممنوع اختراع أو تخيل أي بيانات.
+- استخدم الأسماء والأوقات والمواضيع الفعلية من البيانات.
+- طابق لغة المستخدم.
 
-قدراتك:
-- المساعدة في إدارة وتلخيص رسائل البريد الإلكتروني
-- استخراج المهام القابلة للتنفيذ من المراسلات
-- صياغة ردود بريد إلكتروني احترافية
-- تقديم ملخصات يومية وتخطيط أسبوعي
-- الإجابة على الأسئلة حول المهام والأولويات
+اليوم: {date}"""
+    }
 
-الإرشادات:
-- كن موجزاً ومهنياً
-- عند استخراج المهام، حدد إجراءات محددة بأوصاف واضحة
-- لملخصات البريد الإلكتروني، أبرز النقاط الرئيسية والمشاعر ومستوى الإلحاح
-- طابق لغة المستخدم (أجب بالعربية إذا كتبوا بالعربية)
-- كن مفيداً مع احترام أن القرارات النهائية يتخذها المستخدم
+    VOICE_ADDON = {
+        'en': """
 
-التاريخ الحالي: {date}"""
+IMPORTANT – Voice Output Mode:
+Your response will be read aloud by a text-to-speech engine. You MUST follow these rules:
+- Write in plain, natural conversational sentences only.
+- Do NOT use any markdown formatting (no **, no ##, no -, no *, no ```, no links).
+- Do NOT use bullet points, numbered lists, or tables.
+- Do NOT output JSON, code, or any structured data format.
+- Spell out numbers naturally (e.g. "three thousand five hundred" not "3,500").
+- Keep the response concise (3-6 sentences) and easy to follow when heard, not read.
+- Use connecting words and flow like natural spoken language.""",
+
+        'ar': """
+
+مهم جداً – وضع الإخراج الصوتي:
+سيتم قراءة إجابتك بصوت عالٍ عبر محرك تحويل النص إلى كلام. يجب عليك اتباع هذه القواعد:
+- اكتب بجمل محادثة طبيعية وسلسة فقط.
+- لا تستخدم أي تنسيق ماركداون (لا نجوم، لا عناوين، لا شرطات، لا أقواس، لا أكواد).
+- لا تستخدم قوائم نقطية أو مرقمة أو جداول.
+- لا تُخرج JSON أو كود أو أي تنسيق بيانات منظم.
+- اكتب الأرقام بالكلمات بشكل طبيعي (مثلاً "ثلاثة آلاف وخمسمئة" وليس "3,500").
+- اجعل الإجابة مختصرة (ثلاث إلى ست جمل) وسهلة الفهم عند السماع.
+- استخدم أدوات ربط وأسلوب كلام طبيعي سلس."""
     }
     
     # Prompt templates for specific tasks
@@ -171,93 +259,40 @@ Provide only the reply text, no JSON formatting.""",
         },
         
         'daily_summary': {
-            'en': """Create a daily summary based on the following information:
+            'en': """Summarize the user's workday based on the data below.
+Structure: start with today's meetings (by time), then urgent/unread emails, then pending tasks.
+Be concise (3-5 sentences). Use specific names, times, and subjects.
 
-Tasks:
-{tasks}
+{context}""",
 
-Emails requiring action:
-{emails}
+            'ar': """لخّص يوم عمل المستخدم بناءً على البيانات أدناه.
+الترتيب: ابدأ باجتماعات اليوم (حسب الوقت)، ثم البريد العاجل/غير المقروء، ثم المهام المعلقة.
+كن موجزاً (٣-٥ جمل). استخدم الأسماء والأوقات والمواضيع الفعلية.
 
-Provide a brief, actionable summary that helps the user prioritize their day.
-Format as natural text, suitable for being read aloud.""",
-
-            'ar': """أنشئ ملخصاً يومياً بناءً على المعلومات التالية:
-
-المهام:
-{tasks}
-
-رسائل البريد الإلكتروني التي تتطلب إجراء:
-{emails}
-
-قدم ملخصاً موجزاً وقابلاً للتنفيذ يساعد المستخدم على تحديد أولويات يومه.
-صِغه كنص طبيعي، مناسب للقراءة بصوت عالٍ."""
+{context}"""
         }
     }
     
-    def __init__(self):
-        self.base_url = settings.ollama_host
-        self.model = settings.ollama_model
+    def __init__(self, provider: Optional[LLMProvider] = None):
+        self.provider: LLMProvider = provider or create_llm_provider()
         self.conversation_history: List[Dict[str, str]] = []
         self.max_history = 10
+        self.employee_profile: Dict[str, str] = {}
     
-    async def _make_request(
-        self,
-        endpoint: str,
-        payload: Dict[str, Any],
-        stream: bool = False
-    ) -> Dict[str, Any]:
-        """Make a request to Ollama API."""
-        if not HTTPX_AVAILABLE:
-            raise RuntimeError("httpx not installed. Install with: pip install httpx")
-        
-        url = f"{self.base_url}{endpoint}"
-        logger.debug(f"Ollama request | url={url} | model={payload.get('model')} | stream={stream}")
-        
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                if stream:
-                    # For streaming responses
-                    async with client.stream("POST", url, json=payload) as response:
-                        logger.debug(f"Ollama stream response | status={response.status_code}")
-                        response.raise_for_status()
-                        full_response = ""
-                        async for line in response.aiter_lines():
-                            if line:
-                                data = json.loads(line)
-                                if "response" in data:
-                                    full_response += data["response"]
-                                if data.get("done"):
-                                    break
-                        logger.debug(f"Ollama stream complete | response_length={len(full_response)}")
-                        return {"response": full_response}
-                else:
-                    response = await client.post(url, json=payload)
-                    logger.debug(f"Ollama response | status={response.status_code}")
-                    response.raise_for_status()
-                    result = response.json()
-                    logger.debug(f"Ollama success | response_keys={list(result.keys())}")
-                    return result
-        except httpx.ConnectError as e:
-            logger.error(f"Ollama connection failed | url={url} | error={str(e)}")
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Ollama HTTP error | status={e.response.status_code} | url={url}")
-            raise
-        except Exception as e:
-            logger.error(f"Ollama request failed | error_type={type(e).__name__} | error={str(e)}")
-            raise
-    
-    def _get_system_prompt(self, language: str) -> str:
-        """Get the system prompt for the given language."""
-        prompt = self.SYSTEM_PROMPTS.get(language, self.SYSTEM_PROMPTS['en'])
-        return prompt.format(date=datetime.now().strftime("%Y-%m-%d"))
+    def _get_system_prompt(self, language: str, voice_mode: bool = False) -> str:
+        """Get the system prompt for the given language, with optional voice addon."""
+        lang_key = language if language in self.SYSTEM_PROMPTS else 'en'
+        prompt = self.SYSTEM_PROMPTS[lang_key].format(date=datetime.now().strftime("%Y-%m-%d"))
+        if voice_mode:
+            prompt += self.VOICE_ADDON.get(lang_key, self.VOICE_ADDON['en'])
+        return prompt
     
     async def chat(
         self,
         message: str,
         language: str = "en",
-        include_history: bool = True
+        include_history: bool = True,
+        voice_mode: bool = False,
     ) -> str:
         """
         Send a chat message and get a response.
@@ -266,38 +301,27 @@ Format as natural text, suitable for being read aloud.""",
             message: User's message
             language: Language code ('en' or 'ar')
             include_history: Whether to include conversation history
+            voice_mode: When True, instruct LLM to return voice-friendly prose
         
         Returns:
             Assistant's response
         """
-        logger.info(f"Chat request | language={language} | message_length={len(message)} | history={include_history}")
+        logger.info(f"Chat request | language={language} | message_length={len(message)} | history={include_history} | voice={voice_mode}")
         
-        # Build messages array
         messages = [
-            {"role": "system", "content": self._get_system_prompt(language)}
+            {"role": "system", "content": self._get_system_prompt(language, voice_mode)}
         ]
         
         if include_history:
             messages.extend(self.conversation_history[-self.max_history:])
         
         messages.append({"role": "user", "content": message})
-        logger.debug(f"Chat messages prepared | total_messages={len(messages)}")
+        _log_messages("chat", messages)
         
         try:
-            result = await self._make_request(
-                "/api/chat",
-                {
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "top_p": 0.9
-                    }
-                }
+            response_text = await self.provider.chat(
+                messages, temperature=0.7, top_p=0.9,
             )
-            
-            response_text = result.get("message", {}).get("content", "")
             logger.info(f"Chat response received | response_length={len(response_text)}")
             
             # Update conversation history
@@ -309,17 +333,126 @@ Format as natural text, suitable for being read aloud.""",
                 self.conversation_history = self.conversation_history[-self.max_history * 2:]
             
             return response_text
-            
-        except httpx.ConnectError as e:
-            logger.error(f"Cannot connect to Ollama | base_url={self.base_url} | error={str(e)}")
-            raise RuntimeError(
-                f"Cannot connect to Ollama at {self.base_url}. "
-                "Make sure Ollama is running with: ollama serve"
-            )
+
         except Exception as e:
             logger.error(f"Chat failed | error_type={type(e).__name__} | error={str(e)}", exc_info=True)
             raise RuntimeError(f"LLM request failed: {str(e)}")
     
+    async def chat_stream(
+        self,
+        message: str,
+        language: str = "en",
+        include_history: bool = True,
+        voice_mode: bool = False,
+    ) -> AsyncIterator[str]:
+        """Stream tokens for a chat message."""
+        messages = [
+            {"role": "system", "content": self._get_system_prompt(language, voice_mode)}
+        ]
+        if include_history:
+            messages.extend(self.conversation_history[-self.max_history:])
+        messages.append({"role": "user", "content": message})
+        _log_messages("chat_stream", messages)
+
+        full = ""
+        async for token in self.provider.chat_stream(messages, temperature=0.7, top_p=0.9):
+            full += token
+            yield token
+
+        self.conversation_history.append({"role": "user", "content": message})
+        self.conversation_history.append({"role": "assistant", "content": full})
+        if len(self.conversation_history) > self.max_history * 2:
+            self.conversation_history = self.conversation_history[-self.max_history * 2:]
+
+    # ----- shared prompt builder for contextual chat -----------------------
+
+    def _build_contextual_system_prompt(
+        self,
+        emails: List[Dict],
+        tasks: List[Dict],
+        events: List[Dict],
+        language: str,
+        voice_mode: bool,
+    ) -> str:
+        voice_addon = ""
+        if voice_mode:
+            lang_key = "ar" if language == "ar" else "en"
+            voice_addon = self.VOICE_ADDON.get(lang_key, self.VOICE_ADDON['en'])
+
+        has_any_data = bool(emails) or bool(tasks) or bool(events)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+        if language == "ar":
+            context = self._build_arabic_context(emails, tasks, events)
+            if has_any_data:
+                data_block = f"""بيانات المستخدم الحالية:
+
+{context}
+
+تعليمات:
+- أجب باستخدام البيانات أعلاه فقط. لا تخترع بيانات.
+- ابدأ بالأكثر إلحاحاً (اجتماعات قريبة، مهام عاجلة).
+- لأسئلة الملخص: ابدأ بجدول اليوم، ثم البريد غير المقروء/العاجل، ثم المهام المعلقة.
+- استخدم الأسماء والأوقات والمواضيع الفعلية من البيانات.
+- إذا سأل المستخدم عن شيء غير موجود في البيانات، قل ذلك بوضوح."""
+            else:
+                data_block = """لا تتوفر حالياً أي بيانات (لا بريد، لا مهام، لا اجتماعات).
+يبدو أن حساب Outlook غير متصل أو أن الجلسة انتهت.
+أخبر المستخدم بذلك واطلب منه إعادة الاتصال.
+ممنوع اختراع أو تخيل أي بيانات."""
+            base = self.SYSTEM_PROMPTS['ar'].format(date=date_str)
+        else:
+            context = self._build_english_context(emails, tasks, events)
+            if has_any_data:
+                data_block = f"""USER DATA:
+
+{context}
+
+INSTRUCTIONS:
+- Answer using ONLY the data above. Never invent data.
+- Lead with the most time-sensitive items (upcoming meetings, urgent tasks).
+- For workload/summary questions: start with today's schedule, then highlight unread/urgent emails, then pending tasks.
+- Use specific names, times, and subjects from the data.
+- If asked about something not in the data, say so clearly."""
+            else:
+                data_block = """NO DATA AVAILABLE (no emails, no tasks, no meetings).
+The Outlook account is not connected or the session has expired.
+Tell the user and ask them to reconnect their Outlook account.
+Do NOT invent, fabricate, or hallucinate any data."""
+            base = self.SYSTEM_PROMPTS['en'].format(date=date_str)
+
+        return f"{base}{voice_addon}\n\n{data_block}"
+
+    async def contextual_chat_stream(
+        self,
+        message: str,
+        emails: List[Dict[str, Any]],
+        tasks: List[Dict[str, Any]],
+        events: List[Dict[str, Any]] = None,
+        language: str = "en",
+        voice_mode: bool = False,
+    ) -> AsyncIterator[str]:
+        """Stream tokens for a contextual chat message."""
+        events = events or []
+        system_prompt = self._build_contextual_system_prompt(
+            emails, tasks, events, language, voice_mode,
+        )
+
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(self.conversation_history[-4:])
+        messages.append({"role": "user", "content": message})
+        _log_messages("contextual_chat_stream", messages)
+
+        full = ""
+        async for token in self.provider.chat_stream(messages, temperature=0.7, top_p=0.9):
+            full += token
+            yield token
+
+        self.conversation_history.append({"role": "user", "content": message})
+        self.conversation_history.append({"role": "assistant", "content": full})
+        if len(self.conversation_history) > self.max_history * 2:
+            self.conversation_history = self.conversation_history[-self.max_history * 2:]
+
     async def generate(
         self,
         prompt: str,
@@ -336,22 +469,7 @@ Format as natural text, suitable for being read aloud.""",
             Generated text
         """
         try:
-            result = await self._make_request(
-                "/api/generate",
-                {
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature
-                    }
-                }
-            )
-            
-            return result.get("response", "")
-            
-        except httpx.ConnectError:
-            raise RuntimeError(f"Cannot connect to Ollama at {self.base_url}")
+            return await self.provider.generate(prompt, temperature=temperature)
         except Exception as e:
             raise RuntimeError(f"LLM generation failed: {str(e)}")
     
@@ -474,33 +592,18 @@ Format as natural text, suitable for being read aloud.""",
         self,
         tasks: List[Dict],
         emails: List[Dict],
-        language: str = "en"
+        events: List[Dict] = None,
+        language: str = "en",
     ) -> str:
-        """
-        Generate a daily summary for the user.
-        
-        Returns:
-            Natural language summary suitable for TTS
-        """
+        """Generate a daily summary using the compact context format."""
+        events = events or []
+        if language == "ar":
+            context = self._build_arabic_context(emails, tasks, events)
+        else:
+            context = self._build_english_context(emails, tasks, events)
+
         prompt_template = self.TASK_PROMPTS['daily_summary'][language]
-        
-        # Format tasks
-        tasks_text = "\n".join([
-            f"- {t.get('title', 'Untitled')} ({t.get('priority', 'medium')} priority)"
-            for t in tasks
-        ]) or "No pending tasks"
-        
-        # Format emails
-        emails_text = "\n".join([
-            f"- From {e.get('sender_name', 'Unknown')}: {e.get('subject', 'No subject')}"
-            for e in emails
-        ]) or "No emails requiring immediate action"
-        
-        prompt = prompt_template.format(
-            tasks=tasks_text,
-            emails=emails_text
-        )
-        
+        prompt = prompt_template.format(context=context)
         return await self.generate(prompt, temperature=0.7)
     
     def detect_language(self, text: str) -> str:
@@ -522,165 +625,390 @@ Format as natural text, suitable for being read aloud.""",
         message: str,
         emails: List[Dict[str, Any]],
         tasks: List[Dict[str, Any]],
-        language: str = "en"
+        events: List[Dict[str, Any]] = None,
+        language: str = "en",
+        voice_mode: bool = False,
     ) -> str:
-        """
-        Chat with context about user's emails and tasks.
-        
-        Args:
-            message: User's message/question
-            emails: List of user's emails
-            tasks: List of user's tasks
-            language: Language code
-        
-        Returns:
-            AI response with context awareness
-        """
-        logger.info(f"Contextual chat | language={language} | emails={len(emails)} | tasks={len(tasks)}")
-        
-        # Build context string
-        if language == 'ar':
-            context = self._build_arabic_context(emails, tasks)
-            system_prompt = f"""{self.SYSTEM_PROMPTS['ar'].format(date=datetime.now().strftime("%Y-%m-%d"))}
+        """Chat with context about user's emails, tasks, and calendar events."""
+        events = events or []
+        logger.info(f"Contextual chat | language={language} | emails={len(emails)} | tasks={len(tasks)} | events={len(events)} | voice={voice_mode}")
 
-لديك حق الوصول إلى البيانات التالية للمستخدم:
+        system_prompt = self._build_contextual_system_prompt(
+            emails, tasks, events, language, voice_mode,
+        )
 
-{context}
-
-استخدم هذه المعلومات للإجابة على أسئلة المستخدم. كن محددًا وأشر إلى رسائل البريد الإلكتروني أو المهام ذات الصلة عند الإجابة.
-إذا سأل المستخدم عن شيء غير موجود في البيانات، قل ذلك بوضوح."""
-        else:
-            context = self._build_english_context(emails, tasks)
-            system_prompt = f"""{self.SYSTEM_PROMPTS['en'].format(date=datetime.now().strftime("%Y-%m-%d"))}
-
-You have access to the following user data:
-
-{context}
-
-Use this information to answer user questions. Be specific and reference relevant emails or tasks when answering.
-If the user asks about something not in the data, clearly say so."""
-        
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
-        
-        # Include recent history for context continuity
+        messages = [{"role": "system", "content": system_prompt}]
         messages.extend(self.conversation_history[-4:])
         messages.append({"role": "user", "content": message})
-        
+        _log_messages("contextual_chat", messages)
+
         try:
-            result = await self._make_request(
-                "/api/chat",
-                {
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "top_p": 0.9
-                    }
-                }
+            response_text = await self.provider.chat(
+                messages, temperature=0.7, top_p=0.9,
             )
-            
-            response_text = result.get("message", {}).get("content", "")
             logger.info(f"Contextual chat response | length={len(response_text)}")
-            
-            # Update history
+
             self.conversation_history.append({"role": "user", "content": message})
             self.conversation_history.append({"role": "assistant", "content": response_text})
-            
             if len(self.conversation_history) > self.max_history * 2:
                 self.conversation_history = self.conversation_history[-self.max_history * 2:]
-            
+
             return response_text
-            
-        except httpx.ConnectError:
-            raise RuntimeError(f"Cannot connect to Ollama at {self.base_url}")
+
         except Exception as e:
             logger.error(f"Contextual chat failed | error={str(e)}", exc_info=True)
             raise RuntimeError(f"LLM request failed: {str(e)}")
     
-    def _build_english_context(self, emails: List[Dict], tasks: List[Dict]) -> str:
-        """Build English context string from emails and tasks."""
-        lines = []
-        
-        # Emails section
-        lines.append("=== EMAILS ===")
+    # ------------------------------------------------------------------
+    # Policy / RAG methods
+    # ------------------------------------------------------------------
+
+    async def extract_needed_employee_info(
+        self,
+        policy_chunks: List[Dict[str, Any]],
+        message: str,
+        language: str = "en",
+    ) -> Optional[List[str]]:
+        """Given retrieved policy chunks, determine what employee info is needed to answer accurately.
+
+        Returns a list of missing field names (e.g. ["job_title", "grade"]) or None if
+        no additional info is required.
+        """
+        chunks_text = "\n---\n".join(c["text"] for c in policy_chunks[:5])
+
+        known = json.dumps(self.employee_profile) if self.employee_profile else "None"
+
+        prompt = (
+            "You are an assistant helping answer a company policy question.\n"
+            "Below are relevant policy excerpts and the employee's question.\n\n"
+            f"=== POLICY EXCERPTS ===\n{chunks_text}\n\n"
+            f"=== EMPLOYEE QUESTION ===\n{message}\n\n"
+            f"=== KNOWN EMPLOYEE INFO ===\n{known}\n\n"
+            "Based on the policy excerpts, does the answer depend on the employee's "
+            "job title, rank/grade, department, or any other personal attribute that "
+            "we do NOT already know?\n\n"
+            "If YES, respond ONLY with a JSON list of the missing fields needed, e.g. "
+            '[\"job_title\", \"grade\"].\n'
+            "If NO (we have enough info or the policy applies universally), respond with "
+            "the word NONE."
+        )
+
+        try:
+            response = await self.generate(prompt, temperature=0.0)
+            cleaned = response.strip()
+            if cleaned.upper().startswith("NONE"):
+                return None
+            start = cleaned.find("[")
+            end = cleaned.rfind("]") + 1
+            if start >= 0 and end > start:
+                fields = json.loads(cleaned[start:end])
+                if isinstance(fields, list) and fields:
+                    return fields
+            return None
+        except Exception as e:
+            logger.error(f"extract_needed_employee_info failed: {e}")
+            return None
+
+    def build_employee_info_question(
+        self, needed_fields: List[str], language: str = "en"
+    ) -> str:
+        """Build a natural-language question asking the employee for missing profile info."""
+        field_labels = {
+            "en": {
+                "job_title": "job title",
+                "grade": "grade/rank level",
+                "department": "department",
+                "rank": "rank",
+                "years_of_service": "years of service",
+                "employment_type": "employment type (full-time/part-time/contract)",
+            },
+            "ar": {
+                "job_title": "المسمى الوظيفي",
+                "grade": "الدرجة/المرتبة",
+                "department": "القسم",
+                "rank": "الرتبة",
+                "years_of_service": "سنوات الخدمة",
+                "employment_type": "نوع التوظيف (دوام كامل/جزئي/عقد)",
+            },
+        }
+        labels = field_labels.get(language, field_labels["en"])
+        items = [labels.get(f, f) for f in needed_fields]
+
+        if language == "ar":
+            joined = "، ".join(items)
+            return (
+                f"للإجابة بدقة على سؤالك حول السياسة، أحتاج لمعرفة: {joined}. "
+                "هل يمكنك تزويدي بهذه المعلومات؟"
+            )
+        joined = ", ".join(items)
+        return (
+            f"To answer your policy question accurately, I need to know your: {joined}. "
+            "Could you please share this information?"
+        )
+
+    def update_employee_profile(self, info: Dict[str, str]) -> None:
+        """Merge new employee info into the cached profile."""
+        for k, v in info.items():
+            if v and str(v).strip():
+                self.employee_profile[k] = str(v).strip()
+        logger.debug(f"Employee profile updated | keys={list(self.employee_profile.keys())}")
+
+    _PROFILE_HINT_RE = None
+
+    async def try_extract_profile_from_message(self, message: str) -> Dict[str, str]:
+        """Attempt to extract employee profile fields from a free-text message.
+
+        Only invokes the LLM when the message contains profile-related keywords
+        to avoid wasting ~5 s on every policy question.
+        """
+        import re as _re
+        if self._PROFILE_HINT_RE is None:
+            type(self)._PROFILE_HINT_RE = _re.compile(
+                r"درج[ةه]|رتب[ةه]|مسمى|وظيف|قسم|إدار[ةه]|سنوات|خبر|تعاقد"
+                r"|grade|rank|title|department|years|experience|position|role",
+                _re.IGNORECASE | _re.UNICODE,
+            )
+        if not self._PROFILE_HINT_RE.search(message):
+            return {}
+
+        prompt = (
+            "The user was asked to provide their employee information. "
+            "Extract any of these fields from their response: "
+            "job_title, grade, department, rank, years_of_service, employment_type.\n\n"
+            f"User response: \"{message}\"\n\n"
+            "Return ONLY a JSON object with the extracted fields. "
+            "Only include fields that are clearly stated. "
+            "Example: {{\"job_title\": \"Senior Engineer\", \"grade\": \"7\"}}\n"
+            "If nothing can be extracted, return: {{}}"
+        )
+        try:
+            response = await self.generate(prompt, temperature=0.0)
+            start = response.find("{")
+            end = response.rfind("}") + 1
+            if start >= 0 and end > start:
+                return json.loads(response[start:end])
+        except Exception as e:
+            logger.error(f"Profile extraction failed: {e}")
+        return {}
+
+    async def policy_chat(
+        self,
+        message: str,
+        policy_chunks: List[Dict[str, Any]],
+        language: str = "en",
+    ) -> str:
+        """Generate an answer to a policy question using retrieved chunks and employee profile.
+
+        This method is kept for backward compatibility.  The primary path now uses
+        the grounded QA engine in backend/rag/qa.py via RAGService.answer().
+        """
+        chunks_text = "\n---\n".join(
+            f"[section_id={c.get('section_id','?')} page={c.get('page',0)}]\n{c['text']}"
+            for c in policy_chunks
+        )
+
+        profile_text = (
+            json.dumps(self.employee_profile, ensure_ascii=False)
+            if self.employee_profile
+            else "Not provided"
+        )
+
+        if language == "ar":
+            system_prompt = (
+                f"{self.SYSTEM_PROMPTS['ar'].format(date=datetime.now().strftime('%Y-%m-%d'))}\n\n"
+                "أنت الآن تجيب على سؤال يتعلق بسياسة الشركة.\n"
+                "استخدم المقاطع التالية من وثائق السياسة للإجابة بدقة.\n"
+                "إذا كانت السياسة تختلف حسب الرتبة أو المسمى الوظيفي، استخدم معلومات الموظف أدناه.\n"
+                "لا تختلق معلومات غير موجودة في المقاطع. إذا لم تجد الإجابة، قل ذلك بوضوح.\n"
+                "عند الإجابة، اذكر رقم البند والصفحة كمرجع.\n\n"
+                f"=== مقاطع السياسة ===\n{chunks_text}\n\n"
+                f"=== معلومات الموظف ===\n{profile_text}"
+            )
+        else:
+            system_prompt = (
+                f"{self.SYSTEM_PROMPTS['en'].format(date=datetime.now().strftime('%Y-%m-%d'))}\n\n"
+                "You are now answering a question about company policy.\n"
+                "Use the following policy document excerpts to answer accurately.\n"
+                "If the policy varies by rank or job title, use the employee info below.\n"
+                "Do NOT invent information not present in the excerpts. "
+                "If you cannot find the answer, say so clearly.\n"
+                "Cite the section_id and page number for each piece of information.\n\n"
+                f"=== POLICY EXCERPTS ===\n{chunks_text}\n\n"
+                f"=== EMPLOYEE INFO ===\n{profile_text}"
+            )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+        ]
+        messages.extend(self.conversation_history[-4:])
+        messages.append({"role": "user", "content": message})
+        _log_messages("policy_chat", messages)
+
+        try:
+            response_text = await self.provider.chat(
+                messages, temperature=0.3, top_p=0.9,
+            )
+            logger.info(f"Policy chat response | length={len(response_text)}")
+
+            self.conversation_history.append({"role": "user", "content": message})
+            self.conversation_history.append({"role": "assistant", "content": response_text})
+            if len(self.conversation_history) > self.max_history * 2:
+                self.conversation_history = self.conversation_history[-self.max_history * 2:]
+
+            return response_text
+
+        except Exception as e:
+            logger.error(f"Policy chat failed | error={str(e)}", exc_info=True)
+            raise RuntimeError(f"LLM request failed: {str(e)}")
+
+    # ----- context builders ------------------------------------------------
+
+    @staticmethod
+    def _sort_events(events: List[Dict]) -> List[Dict]:
+        return sorted(events, key=lambda e: _parse_dt(e.get('start_time')) or datetime.max)
+
+    @staticmethod
+    def _sort_emails(emails: List[Dict]) -> List[Dict]:
+        def _key(e):
+            read = 0 if not e.get('is_read') else 1
+            dt = _parse_dt(e.get('received_at')) or datetime.min
+            return (read, -dt.timestamp())
+        return sorted(emails, key=_key)
+
+    @staticmethod
+    def _sort_tasks(tasks: List[Dict]) -> List[Dict]:
+        return sorted(tasks, key=lambda t: _PRIORITY_ORDER.get(t.get('priority', 'medium'), 2))
+
+    def _build_english_context(self, emails: List[Dict], tasks: List[Dict], events: List[Dict] = None) -> str:
+        events = self._sort_events(events or [])
+        emails = self._sort_emails(emails or [])
+        tasks = self._sort_tasks(tasks or [])
+
+        n_unread = sum(1 for e in emails if not e.get('is_read'))
+        n_urgent = sum(1 for t in tasks if t.get('priority') in ('urgent', 'high'))
+        header = (
+            f"OVERVIEW: {len(events)} meeting(s) today | "
+            f"{len(emails)} email(s) ({n_unread} unread) | "
+            f"{len(tasks)} task(s) ({n_urgent} urgent/high)"
+        )
+
+        lines = [header, ""]
+
+        # Calendar
+        lines.append("CALENDAR (today, by time):")
+        if events:
+            for i, ev in enumerate(events[:20], 1):
+                start = _format_time(_parse_dt(ev.get('start_time')))
+                end = _format_time(_parse_dt(ev.get('end_time')))
+                loc = ev.get('location') or ("Online" if ev.get('is_online') else "")
+                org = ev.get('organizer', '')
+                subj = ev.get('subject', 'No subject')
+                parts = [f"{start}-{end}", subj]
+                if loc:
+                    parts.append(loc)
+                if org:
+                    parts.append(f"by {org}")
+                lines.append(f"{i}. {' | '.join(parts)}")
+        else:
+            lines.append("  No meetings today.")
+
+        # Emails
+        lines.append("")
+        lines.append("EMAILS (newest first, unread on top):")
         if emails:
-            for i, email in enumerate(emails[:10], 1):
-                lines.append(f"""
-Email {i}:
-  From: {email.get('sender_name', 'Unknown')} <{email.get('sender_email', '')}>
-  Subject: {email.get('subject', 'No subject')}
-  Date: {email.get('received_at', 'Unknown')}
-  Preview: {email.get('body_preview', '')[:200]}
-  Status: {'Unread' if not email.get('is_read') else 'Read'}
-  Urgency: {email.get('urgency', 'Not assessed')}""")
+            for i, em in enumerate(emails[:12], 1):
+                tag = "[UNREAD] " if not em.get('is_read') else ""
+                sender = em.get('sender_name', 'Unknown')
+                subj = em.get('subject', 'No subject')
+                dt_str = _format_datetime_en(em.get('received_at'))
+                preview = _clean_preview(em.get('body_preview', ''))
+                line = f'{i}. {tag}{sender} — "{subj}" — {dt_str}'
+                if preview:
+                    line += f" — {preview}"
+                lines.append(line)
         else:
-            lines.append("No emails found.")
-        
-        # Tasks section
-        lines.append("\n=== TASKS ===")
+            lines.append("  No emails.")
+
+        # Tasks
+        lines.append("")
+        lines.append("TASKS (by priority):")
         if tasks:
-            for i, task in enumerate(tasks[:15], 1):
-                lines.append(f"""
-Task {i}:
-  Title: {task.get('title', 'Untitled')}
-  Description: {task.get('description', 'No description')}
-  Status: {task.get('status', 'unknown')}
-  Priority: {task.get('priority', 'medium')}
-  Due: {task.get('due_date', 'No due date')}""")
+            for i, t in enumerate(tasks[:15], 1):
+                pri = (t.get('priority') or 'medium').upper()
+                title = t.get('title', 'Untitled')
+                due = t.get('due_date')
+                due_str = f"due {_format_datetime_en(due)}" if due else "no due date"
+                lines.append(f"{i}. [{pri}] {title} — {due_str}")
         else:
-            lines.append("No tasks found.")
-        
+            lines.append("  No tasks.")
+
         return "\n".join(lines)
-    
-    def _build_arabic_context(self, emails: List[Dict], tasks: List[Dict]) -> str:
-        """Build Arabic context string from emails and tasks."""
-        lines = []
-        
-        # Emails section
-        lines.append("=== رسائل البريد الإلكتروني ===")
+
+    def _build_arabic_context(self, emails: List[Dict], tasks: List[Dict], events: List[Dict] = None) -> str:
+        events = self._sort_events(events or [])
+        emails = self._sort_emails(emails or [])
+        tasks = self._sort_tasks(tasks or [])
+
+        _pri_ar = {"urgent": "عاجلة", "high": "عالية", "medium": "متوسطة", "low": "منخفضة"}
+
+        n_unread = sum(1 for e in emails if not e.get('is_read'))
+        n_urgent = sum(1 for t in tasks if t.get('priority') in ('urgent', 'high'))
+        header = (
+            f"نظرة عامة: {len(events)} اجتماع(ات) اليوم | "
+            f"{len(emails)} بريد ({n_unread} غير مقروء) | "
+            f"{len(tasks)} مهمة ({n_urgent} عاجلة/عالية)"
+        )
+
+        lines = [header, ""]
+
+        # Calendar
+        lines.append("التقويم (اليوم، حسب الوقت):")
+        if events:
+            for i, ev in enumerate(events[:20], 1):
+                start = _format_time(_parse_dt(ev.get('start_time')))
+                end = _format_time(_parse_dt(ev.get('end_time')))
+                loc = ev.get('location') or ("عبر الإنترنت" if ev.get('is_online') else "")
+                org = ev.get('organizer', '')
+                subj = ev.get('subject', 'بدون موضوع')
+                parts = [f"{start}-{end}", subj]
+                if loc:
+                    parts.append(loc)
+                if org:
+                    parts.append(f"المنظم: {org}")
+                lines.append(f"{i}. {' | '.join(parts)}")
+        else:
+            lines.append("  لا اجتماعات اليوم.")
+
+        # Emails
+        lines.append("")
+        lines.append("البريد الإلكتروني (الأحدث أولاً):")
         if emails:
-            for i, email in enumerate(emails[:10], 1):
-                status = 'غير مقروء' if not email.get('is_read') else 'مقروء'
-                lines.append(f"""
-البريد {i}:
-  من: {email.get('sender_name', 'غير معروف')} <{email.get('sender_email', '')}>
-  الموضوع: {email.get('subject', 'بدون موضوع')}
-  التاريخ: {email.get('received_at', 'غير معروف')}
-  معاينة: {email.get('body_preview', '')[:200]}
-  الحالة: {status}
-  الإلحاح: {email.get('urgency', 'غير محدد')}""")
+            for i, em in enumerate(emails[:12], 1):
+                tag = "[غير مقروء] " if not em.get('is_read') else ""
+                sender = em.get('sender_name', 'غير معروف')
+                subj = em.get('subject', 'بدون موضوع')
+                dt_str = _format_datetime_ar(em.get('received_at'))
+                preview = _clean_preview(em.get('body_preview', ''))
+                line = f'{i}. {tag}{sender} — "{subj}" — {dt_str}'
+                if preview:
+                    line += f" — {preview}"
+                lines.append(line)
         else:
-            lines.append("لا توجد رسائل بريد إلكتروني.")
-        
-        # Tasks section  
-        lines.append("\n=== المهام ===")
+            lines.append("  لا يوجد بريد.")
+
+        # Tasks
+        lines.append("")
+        lines.append("المهام (حسب الأولوية):")
         if tasks:
-            status_ar = {
-                'pending_approval': 'في انتظار الموافقة',
-                'approved': 'معتمدة',
-                'completed': 'مكتملة',
-                'rejected': 'مرفوضة'
-            }
-            priority_ar = {
-                'low': 'منخفضة',
-                'medium': 'متوسطة', 
-                'high': 'عالية',
-                'urgent': 'عاجلة'
-            }
-            for i, task in enumerate(tasks[:15], 1):
-                lines.append(f"""
-المهمة {i}:
-  العنوان: {task.get('title', 'بدون عنوان')}
-  الوصف: {task.get('description', 'بدون وصف')}
-  الحالة: {status_ar.get(task.get('status', ''), task.get('status', 'غير معروف'))}
-  الأولوية: {priority_ar.get(task.get('priority', ''), task.get('priority', 'متوسطة'))}
-  الاستحقاق: {task.get('due_date', 'بدون تاريخ')}""")
+            for i, t in enumerate(tasks[:15], 1):
+                pri = _pri_ar.get(t.get('priority', 'medium'), 'متوسطة')
+                title = t.get('title', 'بدون عنوان')
+                due = t.get('due_date')
+                due_str = f"الاستحقاق: {_format_datetime_ar(due)}" if due else "بدون تاريخ استحقاق"
+                lines.append(f"{i}. [{pri}] {title} — {due_str}")
         else:
-            lines.append("لا توجد مهام.")
-        
+            lines.append("  لا مهام.")
+
         return "\n".join(lines)
 
 

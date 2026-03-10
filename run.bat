@@ -6,20 +6,20 @@ echo.
 
 cd /d "%~dp0"
 
-:: Check if Python is installed
-python --version >nul 2>&1
+:: Check if Python 3.12 is installed
+py -3.12 --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python is not installed or not in PATH
-    echo Please install Python 3.10+ from https://python.org
+    echo [ERROR] Python 3.12 is not installed or not in PATH
+    echo Please install Python 3.12 from https://python.org
     pause
     exit /b 1
 )
 
 :: Check if venv exists, create if not
 if not exist "backend\venv" (
-    echo [INFO] Creating virtual environment...
+    echo [INFO] Creating virtual environment with Python 3.12...
     cd backend
-    python -m venv venv
+    py -3.12 -m venv venv
     cd ..
 )
 
@@ -72,6 +72,13 @@ if errorlevel 1 (
     echo Starting Ollama in background...
     start "" ollama serve
     timeout /t 3 >nul
+)
+
+:: Kill any existing process on port 8000
+echo [INFO] Checking for existing process on port 8000...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING"') do (
+    echo [INFO] Killing existing process on port 8000 (PID: %%a)
+    taskkill /PID %%a /F >nul 2>&1
 )
 
 :: Start the backend

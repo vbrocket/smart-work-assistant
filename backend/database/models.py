@@ -40,6 +40,8 @@ class User(Base):
     emails = relationship("Email", back_populates="user")
     tasks = relationship("Task", back_populates="user")
     conversations = relationship("Conversation", back_populates="user")
+    calendar_events = relationship("CalendarEvent", back_populates="user")
+    contacts = relationship("Contact", back_populates="user")
 
 
 class Email(Base):
@@ -100,6 +102,52 @@ class Task(Base):
     # Relationships
     user = relationship("User", back_populates="tasks")
     source_email = relationship("Email", back_populates="tasks")
+
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    graph_id = Column(String(255), unique=True, index=True)
+    
+    subject = Column(String(500))
+    organizer_name = Column(String(255), nullable=True)
+    organizer_email = Column(String(255), nullable=True)
+    
+    start_time = Column(DateTime)
+    end_time = Column(DateTime)
+    is_all_day = Column(Boolean, default=False)
+    
+    location = Column(String(500), nullable=True)
+    is_online = Column(Boolean, default=False)
+    online_meeting_url = Column(String(1000), nullable=True)
+    
+    body_preview = Column(Text, nullable=True)
+    attendees = Column(Text, nullable=True)  # JSON-serialized list
+    status = Column(String(50), nullable=True)  # tentative, accepted, declined
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = relationship("User", back_populates="calendar_events")
+
+
+class Contact(Base):
+    __tablename__ = "contacts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    graph_id = Column(String(255), unique=True, index=True)
+    
+    display_name = Column(String(255))
+    email = Column(String(255), nullable=True)
+    company = Column(String(255), nullable=True)
+    job_title = Column(String(255), nullable=True)
+    
+    synced_at = Column(DateTime, default=datetime.utcnow)
+    
+    user = relationship("User", back_populates="contacts")
 
 
 class Conversation(Base):

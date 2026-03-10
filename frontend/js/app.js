@@ -5,15 +5,42 @@ const App = {
     isAuthenticated: false,
     isHandsFreeMode: false,
     handsFreeTimeout: null,
-    handsFreeTimeoutDuration: 30000, // 30 seconds of silence before auto-exit
     wakeLock: null,
-    lastRecording: null, // Store last recording for playback
+    lastRecording: null,
+    selectedAttendees: [],
+    contactSearchTimeout: null,
     
-    // Exit commands in multiple languages
     exitCommands: [
         'stop', 'exit', 'goodbye', 'quit', 'end', 'cancel',
         'توقف', 'خروج', 'مع السلامة', 'انهاء', 'إنهاء', 'وقف'
     ],
+    
+    QUICK_PROMPTS: {
+        today_work: {
+            en: "Give me a complete overview of my workday today: list all my meetings and appointments with times, all pending/active tasks with priorities and due dates, and all unread emails highlighting what action is needed from me for each one. Organize by priority and urgency.",
+            ar: "أعطني نظرة شاملة على يوم عملي اليوم: اذكر جميع اجتماعاتي ومواعيدي مع الأوقات، وجميع المهام المعلقة/النشطة مع الأولويات وتواريخ الاستحقاق، وجميع رسائل البريد غير المقروءة مع توضيح الإجراء المطلوب مني في كل رسالة. رتبها حسب الأولوية والإلحاح."
+        },
+        unread_emails: {
+            en: "Summarize all my unread emails. For each one, tell me who sent it, what it's about, and what action or response is expected from me.",
+            ar: "لخص جميع رسائل البريد الإلكتروني غير المقروءة. لكل رسالة، أخبرني من أرسلها، وما موضوعها، وما الإجراء أو الرد المتوقع مني."
+        },
+        pending_tasks: {
+            en: "List all my pending and active tasks. For each task, include the priority, due date, and a brief description. Sort by urgency.",
+            ar: "اذكر جميع مهامي المعلقة والنشطة. لكل مهمة، اذكر الأولوية وتاريخ الاستحقاق ووصفاً مختصراً. رتبها حسب الإلحاح."
+        },
+        next_meeting: {
+            en: "What is my next upcoming meeting? Give me the time, subject, attendees, location or Teams link, and any preparation I should do based on my emails and tasks.",
+            ar: "ما هو اجتماعي القادم؟ أعطني الوقت والموضوع والحضور والمكان أو رابط Teams، وأي تحضيرات يجب أن أقوم بها بناءً على رسائلي ومهامي."
+        },
+        draft_replies: {
+            en: "Review my unread emails and for each one that needs a response, draft a brief professional reply.",
+            ar: "راجع رسائل بريدي غير المقروءة ولكل رسالة تحتاج إلى رد، اكتب مسودة رد مهني مختصر."
+        },
+        weekly_plan: {
+            en: "Based on my current tasks, meetings, and email backlog, help me plan my week. Suggest what to prioritize and how to organize my time.",
+            ar: "بناءً على مهامي الحالية واجتماعاتي ورسائل البريد المتراكمة، ساعدني في تخطيط أسبوعي. اقترح ما يجب أن أعطيه الأولوية وكيف أنظم وقتي."
+        }
+    },
     
     /**
      * Initialize the application
@@ -30,6 +57,9 @@ const App = {
         // Initialize Voice
         await Voice.init();
         
+        // Connect WebSocket voice pipeline (non-blocking)
+        this._initWSVoice();
+        
         // Set up event listeners
         this.setupEventListeners();
         
@@ -40,6 +70,18 @@ const App = {
         await this.loadInitialData();
         
         console.log('App initialized successfully');
+    },
+
+    /**
+     * Initialize the WebSocket voice pipeline if supported.
+     */
+    _initWSVoice() {
+        if (typeof WSVoice === 'undefined' || !WSVoice.isSupported()) {
+            console.log('WSVoice not available, hands-free will use HTTP fallback');
+            return;
+        }
+        WSVoice.language = UI.currentLanguage || 'ar';
+        WSVoice.connect();
     },
     
     /**
@@ -88,10 +130,30 @@ const App = {
             });
         });
         
+        // Quick prompt chips
+        document.querySelectorAll('.prompt-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const key = chip.dataset.prompt;
+                const prompts = this.QUICK_PROMPTS[key];
+                if (!prompts) return;
+                
+                const lang = UI.currentLanguage || 'en';
+                const message = prompts[lang] || prompts.en;
+                
+                const input = document.getElementById('chatInput');
+                input.value = message;
+                this.sendMessage({ autoSpeak: true });
+            });
+        });
+        
         // Language toggle
         document.getElementById('langToggle').addEventListener('click', () => {
             UI.toggleLanguage();
             UI.updateSummaryDate();
+            if (typeof WSVoice !== 'undefined' && WSVoice.connected) {
+                WSVoice.language = UI.currentLanguage;
+                WSVoice.sendConfig();
+            }
         });
         
         // Chat input
@@ -127,6 +189,16 @@ const App = {
         // Auth modal close button
         document.getElementById('closeAuthModal').addEventListener('click', () => {
             UI.hideAuthModal();
+        });
+
+        // Auth expiry banner buttons
+        document.getElementById('authBannerReconnect')?.addEventListener('click', () => {
+            UI.hideAuthBanner();
+            this.isAuthenticated = false;
+            this.connectOutlook();
+        });
+        document.getElementById('authBannerDismiss')?.addEventListener('click', () => {
+            UI.hideAuthBanner();
         });
         
         // Copy code button
@@ -188,6 +260,121 @@ const App = {
                 this.playLastRecording();
             });
         }
+        
+        // Calendar: refresh
+        const refreshCalBtn = document.getElementById('refreshCalendar');
+        if (refreshCalBtn) {
+            refreshCalBtn.addEventListener('click', () => this.refreshCalendar());
+        }
+        
+        // Calendar: create event FAB
+        const createEventBtn = document.getElementById('createEventBtn');
+        if (createEventBtn) {
+            createEventBtn.addEventListener('click', () => UI.showCreateEventModal());
+        }
+        
+        // Calendar: close create modal
+        const closeCreateModal = document.getElementById('closeCreateEventModal');
+        if (closeCreateModal) {
+            closeCreateModal.addEventListener('click', () => UI.hideCreateEventModal());
+        }
+        
+        // Calendar: submit create form
+        const createForm = document.getElementById('createEventForm');
+        if (createForm) {
+            createForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.createEvent();
+            });
+        }
+        
+        // Contact picker: search with debounce
+        const attendeeInput = document.getElementById('attendeeSearch');
+        if (attendeeInput) {
+            attendeeInput.addEventListener('input', () => {
+                clearTimeout(this.contactSearchTimeout);
+                const query = attendeeInput.value.trim();
+                if (query.length < 2) {
+                    document.getElementById('contactDropdown').classList.remove('visible');
+                    return;
+                }
+                this.contactSearchTimeout = setTimeout(() => this.searchContacts(query), 300);
+            });
+            
+            attendeeInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const val = attendeeInput.value.trim();
+                    if (val && val.includes('@')) {
+                        this.addAttendee({ email: val, name: val });
+                        attendeeInput.value = '';
+                        document.getElementById('contactDropdown').classList.remove('visible');
+                    }
+                }
+            });
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.attendee-picker')) {
+                    document.getElementById('contactDropdown').classList.remove('visible');
+                }
+            });
+        }
+        
+        // ---- Policy Documents ----
+        const refreshPolicyBtn = document.getElementById('refreshPolicy');
+        if (refreshPolicyBtn) {
+            refreshPolicyBtn.addEventListener('click', () => this.refreshPolicyStatus());
+        }
+        
+        const uploadZone = document.getElementById('uploadZone');
+        const policyFileInput = document.getElementById('policyFileInput');
+        const browseBtn = document.getElementById('policyBrowseBtn');
+        
+        if (uploadZone) {
+            uploadZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+            uploadZone.addEventListener('dragleave', () => {
+                uploadZone.classList.remove('dragover');
+            });
+            uploadZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                const files = Array.from(e.dataTransfer.files);
+                files.forEach(f => this.uploadPolicyDocument(f));
+            });
+            uploadZone.addEventListener('click', (e) => {
+                if (e.target.closest('#policyBrowseBtn') || e.target === uploadZone || e.target.closest('.upload-text') || e.target.closest('.upload-icon') || e.target.closest('.upload-hint')) {
+                    policyFileInput?.click();
+                }
+            });
+        }
+        
+        if (policyFileInput) {
+            policyFileInput.addEventListener('change', () => {
+                const files = Array.from(policyFileInput.files);
+                files.forEach(f => this.uploadPolicyDocument(f));
+                policyFileInput.value = '';
+            });
+        }
+        
+        const ingestBtn = document.getElementById('ingestBtn');
+        if (ingestBtn) {
+            ingestBtn.addEventListener('click', () => this.ingestPolicyDocuments());
+        }
+        
+        const policyDocList = document.getElementById('policyDocList');
+        if (policyDocList) {
+            policyDocList.addEventListener('click', (e) => {
+                const deleteBtn = e.target.closest('.policy-doc-delete');
+                if (deleteBtn) {
+                    const filename = deleteBtn.dataset.name;
+                    if (filename) this.deletePolicyDocument(filename);
+                }
+            });
+        }
     },
     
     /**
@@ -196,6 +383,7 @@ const App = {
     async checkAuthStatus() {
         try {
             const status = await API.getAuthStatus();
+            const wasAuthenticated = this.isAuthenticated;
             this.isAuthenticated = status.authenticated;
             
             const connectBtn = document.getElementById('connectOutlook');
@@ -207,6 +395,17 @@ const App = {
                     </svg>
                     <span>${UI.t('connect.disconnect')}</span>
                 `;
+                UI.hideAuthBanner();
+            } else {
+                connectBtn.classList.remove('connected');
+                connectBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                    </svg>
+                    <span>${UI.t('sidebar.connect')}</span>
+                `;
+                const reason = (wasAuthenticated || status.was_connected) ? 'expired' : 'not_connected';
+                UI.showAuthBanner(reason);
             }
         } catch (error) {
             console.error('Failed to check auth status:', error);
@@ -218,53 +417,107 @@ const App = {
      */
     async loadInitialData() {
         try {
-            // Load emails if authenticated
             if (this.isAuthenticated) {
                 await this.refreshEmails();
+                await this.refreshCalendar();
             }
             
-            // Load tasks
             await this.refreshTasks();
-            
-            // Load summary
             await this.refreshSummary();
+            await this.refreshPolicyStatus();
         } catch (error) {
             console.error('Failed to load initial data:', error);
         }
     },
     
     /**
-     * Send chat message
+     * Send chat message with streaming.
+     * @param {Object} options - { autoSpeak: boolean }
      */
-    async sendMessage() {
+    async sendMessage(options = {}) {
         const input = document.getElementById('chatInput');
         const message = input.value.trim();
-        
+
         if (!message) return;
-        
-        // Add user message to chat
+
         UI.addChatMessage(message, true);
         input.value = '';
-        
-        // Show loading
+
         const loadingMessage = UI.addLoadingMessage();
-        
-        try {
-            const response = await API.chat(message, UI.currentLanguage);
-            UI.removeLoadingMessage();
-            UI.addChatMessage(response.response, false);
-            
-            // Optionally speak the response
-            // await Voice.speak(response.response, response.language);
-        } catch (error) {
-            UI.removeLoadingMessage();
-            UI.showToast(error.message, 'error');
-            UI.addChatMessage('Sorry, I encountered an error. Please try again.', false);
-        }
+        let handle = null;
+        let speakHandle = null;
+
+        const voiceMode = !!options.autoSpeak;
+
+        return new Promise((resolve) => {
+            API.chatStream(message, UI.currentLanguage, {
+                onAuthRequired() {
+                    App.isAuthenticated = false;
+                    UI.showAuthBanner('expired');
+                },
+                onRoute(_intent) {
+                    if (voiceMode) {
+                        speakHandle = Voice.speakStreaming(UI.currentLanguage);
+                    }
+                },
+                onToken(token) {
+                    if (!handle) {
+                        UI.removeLoadingMessage();
+                        handle = UI.addStreamingMessage();
+                    }
+                    UI.appendToStreamingMessage(handle, token);
+                    if (speakHandle) speakHandle.feedToken(token);
+                },
+                onThinkingStart() {
+                    if (!handle) {
+                        UI.removeLoadingMessage();
+                        handle = UI.addStreamingMessage();
+                    }
+                    UI.startThinkingBlock(handle);
+                },
+                onThinking(content) {
+                    if (handle) UI.appendThinkingToken(handle, content);
+                },
+                onThinkingEnd() {
+                    if (handle) UI.endThinkingBlock(handle);
+                },
+                onCitations(citations, refsText) {
+                    if (handle && refsText) {
+                        UI.appendToStreamingMessage(handle, refsText);
+                    }
+                },
+                onClear() {
+                    if (handle) UI.clearStreamingMessage(handle);
+                    if (speakHandle) speakHandle.reset();
+                },
+                onDone(fullResponse, language) {
+                    if (!handle) {
+                        UI.removeLoadingMessage();
+                        UI.addChatMessage(fullResponse || '', false);
+                    } else {
+                        UI.finalizeStreamingMessage(handle, fullResponse);
+                    }
+                    if (speakHandle) {
+                        speakHandle.flush();
+                    }
+                    resolve();
+                },
+                onError(msg) {
+                    UI.removeLoadingMessage();
+                    if (handle) {
+                        UI.finalizeStreamingMessage(handle, handle._raw);
+                    }
+                    UI.showToast(msg, 'error');
+                    if (speakHandle) speakHandle.cancel();
+                    resolve();
+                }
+            }, { voiceMode });
+        });
     },
     
     /**
-     * Start voice input
+     * Start voice input (tap-to-record button).
+     * Uses WSVoice when connected, HTTP fallback otherwise.
      */
     async startVoiceInput() {
         try {
@@ -273,33 +526,79 @@ const App = {
                 UI.showToast(UI.t('error.microphone'), 'error');
                 return;
             }
-            
-            await Voice.startRecording();
-            UI.showVoiceModal();
-            UI.setVoiceStatus('listening');
-            
-            document.getElementById('voiceBtn').classList.add('recording');
+
+            if (this._useWSVoice()) {
+                this._voiceInputViaWS = true;
+                WSVoice.language = UI.currentLanguage || 'ar';
+                WSVoice.voiceMode = false;
+
+                WSVoice.callbacks.onPartialTranscript = (text) => {
+                    if (text) {
+                        const statusEl = document.querySelector('.voice-status');
+                        if (statusEl) statusEl.textContent = text;
+                    }
+                };
+                WSVoice.callbacks.onTranscript = (text) => {
+                    UI.hideVoiceModal();
+                    document.getElementById('voiceBtn').classList.remove('recording');
+                    if (text && text.trim()) {
+                        document.getElementById('chatInput').value = text.trim();
+                        this.sendMessage();
+                    }
+                    this._clearVoiceInputWSCallbacks();
+                };
+                WSVoice.callbacks.onDone = () => {};
+                WSVoice.callbacks.onError = (msg) => {
+                    UI.hideVoiceModal();
+                    document.getElementById('voiceBtn').classList.remove('recording');
+                    UI.showToast(msg, 'error');
+                    this._clearVoiceInputWSCallbacks();
+                };
+
+                await WSVoice.startListening();
+                UI.showVoiceModal();
+                UI.setVoiceStatus('listening');
+                document.getElementById('voiceBtn').classList.add('recording');
+            } else {
+                this._voiceInputViaWS = false;
+                await Voice.startRecording();
+                UI.showVoiceModal();
+                UI.setVoiceStatus('listening');
+                document.getElementById('voiceBtn').classList.add('recording');
+            }
         } catch (error) {
             UI.showToast(error.message, 'error');
         }
     },
-    
+
+    _clearVoiceInputWSCallbacks() {
+        if (typeof WSVoice !== 'undefined') {
+            WSVoice.callbacks.onPartialTranscript = null;
+            WSVoice.callbacks.onTranscript = null;
+            WSVoice.callbacks.onDone = null;
+            WSVoice.callbacks.onError = null;
+        }
+    },
+
     /**
      * Stop voice input and process
      */
     async stopVoiceInput() {
+        if (this._voiceInputViaWS && this._useWSVoice()) {
+            UI.setVoiceStatus('processing');
+            document.getElementById('voiceBtn').classList.remove('recording');
+            WSVoice.stopListening();
+            return;
+        }
+
         try {
             UI.setVoiceStatus('processing');
-            
             const audioBlob = await Voice.stopRecording();
             document.getElementById('voiceBtn').classList.remove('recording');
-            
-            // Transcribe with current language hint
             const transcription = await Voice.transcribe(audioBlob, UI.currentLanguage);
             UI.hideVoiceModal();
             
             if (transcription.text) {
-                // Add to chat and process
                 document.getElementById('chatInput').value = transcription.text;
                 await this.sendMessage();
             }
@@ -321,11 +620,9 @@ const App = {
         }
         
         try {
-            // Get device code from backend
+            this._authPollActive = false;
             const deviceCode = await API.startDeviceCodeFlow();
-            
-            // Show auth modal with code and link
-            UI.showAuthModal(deviceCode.user_code, deviceCode.verification_uri);
+            UI.showAuthModal(deviceCode.user_code, deviceCode.verification_uri, deviceCode.expires_in || 900);
             UI.hideSidebar();
             
             // Start polling for auth completion in background
@@ -400,19 +697,21 @@ const App = {
      * Poll for authentication completion
      */
     async pollAuthStatus() {
-        const maxAttempts = 60; // 5 minutes with 5 second intervals
+        this._authPollActive = true;
+        const maxAttempts = 60;
         let attempts = 0;
         
         const poll = async () => {
+            if (!this._authPollActive) return;
             try {
                 const status = await API.getAuthStatus();
                 
                 if (status.authenticated) {
-                    // Success!
+                    this._authPollActive = false;
                     this.isAuthenticated = true;
                     UI.showAuthSuccess();
+                    UI.hideAuthBanner();
                     
-                    // Update connect button
                     const connectBtn = document.getElementById('connectOutlook');
                     connectBtn.classList.add('connected');
                     connectBtn.innerHTML = `
@@ -422,38 +721,35 @@ const App = {
                         <span>${UI.t('connect.disconnect')}</span>
                     `;
                     
-                    // Close modal after delay
                     setTimeout(() => {
                         UI.hideAuthModal();
                         this.refreshEmails();
+                        this.refreshCalendar();
                     }, 2000);
                     
                     return;
                 }
                 
-                // Not authenticated yet, continue polling
                 attempts++;
-                if (attempts < maxAttempts) {
-                    setTimeout(poll, 5000); // Poll every 5 seconds
+                if (attempts < maxAttempts && this._authPollActive) {
+                    setTimeout(poll, 5000);
                 }
             } catch (error) {
                 console.error('Auth poll error:', error);
                 attempts++;
-                if (attempts < maxAttempts) {
+                if (attempts < maxAttempts && this._authPollActive) {
                     setTimeout(poll, 5000);
                 }
             }
         };
         
-        // Also trigger the complete endpoint to start waiting
         try {
             API.completeDeviceCodeFlow();
         } catch (e) {
             console.log('Background auth flow started');
         }
         
-        // Start polling
-        setTimeout(poll, 3000); // Initial delay
+        setTimeout(poll, 3000);
     },
     
     /**
@@ -551,6 +847,186 @@ const App = {
         }
     },
     
+    // ============ Policy Documents ============
+    
+    async refreshPolicyStatus() {
+        try {
+            const status = await API.getPolicyStatus();
+            UI.updatePolicyStats(status);
+            UI.renderPolicyDocuments(status.file_details || []);
+        } catch (error) {
+            console.error('Failed to load policy status:', error);
+        }
+    },
+    
+    async uploadPolicyDocument(file) {
+        try {
+            await API.uploadPolicyDoc(file);
+            UI.showToast(UI.t('policy.uploadSuccess'), 'success');
+            await this.refreshPolicyStatus();
+        } catch (error) {
+            UI.showToast(error.message || 'Upload failed', 'error');
+        }
+    },
+    
+    async deletePolicyDocument(filename) {
+        try {
+            await API.deletePolicyDoc(filename);
+            UI.showToast(UI.t('policy.deleteSuccess'), 'success');
+            await this.refreshPolicyStatus();
+        } catch (error) {
+            UI.showToast(error.message || 'Delete failed', 'error');
+        }
+    },
+    
+    async ingestPolicyDocuments() {
+        UI.setPolicyIngestProgress('loading');
+        try {
+            const result = await API.ingestPolicyDocs();
+            UI.setPolicyIngestProgress('success', result);
+            await this.refreshPolicyStatus();
+        } catch (error) {
+            UI.setPolicyIngestProgress('error', error.message || 'Ingestion failed');
+        }
+    },
+    
+    // ============ Calendar ============
+    
+    async refreshCalendar() {
+        if (!this.isAuthenticated) {
+            UI.renderCalendarEvents([]);
+            return;
+        }
+        
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const events = await API.getCalendarEvents(today);
+            UI.renderCalendarEvents(events);
+        } catch (error) {
+            console.error('Failed to load calendar:', error);
+        }
+    },
+    
+    async createEvent() {
+        const subject = document.getElementById('eventSubject').value.trim();
+        const start = document.getElementById('eventStart').value;
+        const end = document.getElementById('eventEnd').value;
+        const location = document.getElementById('eventLocation').value.trim();
+        const body = document.getElementById('eventBody').value.trim();
+        const isOnline = document.getElementById('eventOnline').checked;
+        
+        if (!subject || !start || !end) {
+            UI.showToast('Please fill in subject, start, and end time', 'error');
+            return;
+        }
+        
+        try {
+            const data = {
+                subject,
+                start: new Date(start).toISOString().replace('Z', ''),
+                end: new Date(end).toISOString().replace('Z', ''),
+                location: location || null,
+                body: body || null,
+                is_online: isOnline,
+                attendees: this.selectedAttendees.length ? this.selectedAttendees : null
+            };
+            
+            const result = await API.createCalendarEvent(data);
+            
+            UI.hideCreateEventModal();
+            this.selectedAttendees = [];
+            UI.showToast(UI.t('calendar.created'), 'success');
+            
+            // Show Teams link if created
+            if (result.online_meeting_url) {
+                UI.showToast(`Teams: ${result.online_meeting_url}`, 'info', 8000);
+            }
+            
+            await this.refreshCalendar();
+        } catch (error) {
+            UI.showToast(error.message || 'Failed to create event', 'error');
+        }
+    },
+    
+    // ============ Contacts / Attendee Picker ============
+    
+    async searchContacts(query) {
+        try {
+            const contacts = await API.getContacts(query);
+            const dropdown = document.getElementById('contactDropdown');
+            
+            if (!contacts || contacts.length === 0) {
+                dropdown.classList.remove('visible');
+                return;
+            }
+            
+            // Filter out already-selected
+            const selectedEmails = this.selectedAttendees.map(a => a.email.toLowerCase());
+            const filtered = contacts.filter(c => c.email && !selectedEmails.includes(c.email.toLowerCase()));
+            
+            if (filtered.length === 0) {
+                dropdown.classList.remove('visible');
+                return;
+            }
+            
+            dropdown.innerHTML = filtered.map(c => `
+                <div class="contact-option" data-email="${UI.escapeHtml(c.email)}" data-name="${UI.escapeHtml(c.display_name)}">
+                    <span class="contact-name">${UI.escapeHtml(c.display_name)}</span>
+                    <span class="contact-email">${UI.escapeHtml(c.email)}</span>
+                    ${c.company ? `<span class="contact-company">${UI.escapeHtml(c.company)}</span>` : ''}
+                </div>
+            `).join('');
+            
+            dropdown.classList.add('visible');
+            
+            // Click handlers for options
+            dropdown.querySelectorAll('.contact-option').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    this.addAttendee({
+                        email: opt.dataset.email,
+                        name: opt.dataset.name
+                    });
+                    document.getElementById('attendeeSearch').value = '';
+                    dropdown.classList.remove('visible');
+                });
+            });
+        } catch (error) {
+            console.error('Contact search failed:', error);
+        }
+    },
+    
+    addAttendee(attendee) {
+        if (this.selectedAttendees.find(a => a.email.toLowerCase() === attendee.email.toLowerCase())) {
+            return;
+        }
+        
+        this.selectedAttendees.push(attendee);
+        this.renderAttendeeChips();
+    },
+    
+    removeAttendee(email) {
+        this.selectedAttendees = this.selectedAttendees.filter(a => a.email !== email);
+        this.renderAttendeeChips();
+    },
+    
+    renderAttendeeChips() {
+        const container = document.getElementById('selectedAttendees');
+        if (!container) return;
+        
+        container.innerHTML = this.selectedAttendees.map(a => `
+            <div class="attendee-chip">
+                <span>${UI.escapeHtml(a.name || a.email)}</span>
+                <button type="button" class="remove-attendee" data-email="${UI.escapeHtml(a.email)}">&times;</button>
+            </div>
+        `).join('');
+        
+        container.querySelectorAll('.remove-attendee').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.removeAttendee(btn.dataset.email);
+            });
+        });
+    },
+    
     // ============ Hands-Free Mode ============
     
     /**
@@ -569,7 +1045,6 @@ const App = {
      */
     async enterHandsFreeMode() {
         try {
-            // Check microphone permission first
             const hasPermission = await Voice.checkMicrophonePermission();
             if (!hasPermission) {
                 UI.showToast(UI.t('error.microphone'), 'error');
@@ -580,13 +1055,9 @@ const App = {
             UI.showHandsFreeOverlay();
             UI.hideSidebar();
             
-            // Request wake lock to keep screen on
             await this.requestWakeLock();
-            
-            // Play ready beep and announce
             await Voice.playReadyBeep();
             
-            // Start the hands-free conversation loop
             this.startHandsFreeListening();
             
         } catch (error) {
@@ -602,96 +1073,211 @@ const App = {
     exitHandsFreeMode() {
         this.isHandsFreeMode = false;
         
-        // Clear any pending timeout
         if (this.handsFreeTimeout) {
             clearTimeout(this.handsFreeTimeout);
             this.handsFreeTimeout = null;
         }
         
-        // Stop any ongoing recording
-        if (Voice.isRecording) {
-            Voice.stopRecording().catch(() => {});
+        if (this._useWSVoice()) {
+            WSVoice.cancel();
+        } else {
+            if (Voice.isRecording) Voice.stopRecording().catch(() => {});
+            Voice.cancelSpeech();
+            Voice.stopSilenceDetection();
         }
         
-        // Stop any ongoing speech
-        Voice.cancelSpeech();
-        
-        // Stop silence detection
-        Voice.stopSilenceDetection();
-        
-        // Release wake lock
         this.releaseWakeLock();
-        
-        // Clear live transcript
         UI.clearLiveTranscript();
-        
-        // Hide overlay
         UI.hideHandsFreeOverlay();
         
         console.log('Exited hands-free mode');
     },
-    
+
     /**
-     * Start listening in hands-free mode
+     * Returns true if the WebSocket voice pipeline is available.
+     */
+    _useWSVoice() {
+        return typeof WSVoice !== 'undefined' && WSVoice.isSupported() && WSVoice.connected;
+    },
+
+    /**
+     * Start listening in hands-free mode.
+     * Uses WebSocket pipeline when available, falls back to HTTP.
      */
     async startHandsFreeListening() {
         if (!this.isHandsFreeMode) return;
-        
+
+        if (this._useWSVoice()) {
+            await this._startHandsFreeWS();
+        } else {
+            await this._startHandsFreeHTTP();
+        }
+    },
+
+    // ---- WebSocket-based hands-free ----
+
+    async _startHandsFreeWS() {
+        if (!this.isHandsFreeMode) return;
+
+        UI.setHandsFreeStatus('listening');
+        UI.clearLiveTranscript();
+        UI.showLiveTypingIndicator();
+        await Voice.playListeningBeep();
+
+        WSVoice.language = UI.currentLanguage || 'ar';
+        WSVoice.voiceMode = true;
+
+        let handle = null;
+
+        WSVoice.callbacks.onPartialTranscript = (text) => {
+            if (text) UI.updateLiveTranscript(text + ' ...', 'user');
+        };
+
+        WSVoice.callbacks.onTranscript = (text, _lang, _conf) => {
+            if (!text || !text.trim()) {
+                UI.clearLiveTranscript();
+                if (this.isHandsFreeMode) {
+                    setTimeout(() => this.startHandsFreeListening(), 300);
+                }
+                return;
+            }
+            const userMessage = text.trim();
+            console.log('[WSVoice] transcript:', userMessage);
+            UI.updateLiveTranscript(userMessage, 'user');
+
+            if (this.isExitCommand(userMessage)) {
+                const goodbye = UI.currentLanguage === 'ar' ? 'مع السلامة!' : 'Goodbye!';
+                UI.setHandsFreeStatus('speaking');
+                UI.updateLiveTranscript(goodbye, 'assistant');
+                Voice.speak(goodbye, UI.currentLanguage).then(() => this.exitHandsFreeMode());
+                WSVoice.cancel();
+                return;
+            }
+
+            UI.addChatMessage(userMessage, true);
+            UI.setHandsFreeStatus('thinking');
+        };
+
+        WSVoice.callbacks.onRoute = (_intent) => {};
+
+        WSVoice.callbacks.onToken = (token) => {
+            if (!handle) {
+                handle = UI.addStreamingMessage();
+                UI.setHandsFreeStatus('speaking');
+            }
+            UI.appendToStreamingMessage(handle, token);
+            UI.updateLiveTranscript(handle._raw, 'assistant');
+        };
+
+        WSVoice.callbacks.onThinkingStart = () => {
+            if (!handle) {
+                handle = UI.addStreamingMessage();
+            }
+            UI.startThinkingBlock(handle);
+        };
+
+        WSVoice.callbacks.onThinking = (content) => {
+            if (handle) UI.appendThinkingToken(handle, content);
+        };
+
+        WSVoice.callbacks.onThinkingEnd = () => {
+            if (handle) UI.endThinkingBlock(handle);
+        };
+
+        WSVoice.callbacks.onCitations = (_cit, refsText) => {
+            if (handle && refsText) {
+                UI.appendToStreamingMessage(handle, refsText);
+            }
+        };
+
+        WSVoice.callbacks.onClear = () => {
+            if (handle) UI.clearStreamingMessage(handle);
+        };
+
+        WSVoice.callbacks.onDone = (fullResponse) => {
+            if (handle) {
+                UI.finalizeStreamingMessage(handle, fullResponse);
+            } else if (fullResponse) {
+                UI.addChatMessage(fullResponse, false);
+            }
+            UI.updateLiveTranscript(fullResponse || '', 'assistant');
+            UI.setHandsFreeStatus('speaking');
+            handle = null;
+
+            WSVoice.waitForTTSComplete().then(() => {
+                if (this.isHandsFreeMode) {
+                    setTimeout(() => this.startHandsFreeListening(), 400);
+                }
+            });
+        };
+
+        WSVoice.callbacks.onError = (msg) => {
+            console.error('[WSVoice] pipeline error:', msg);
+            if (handle) UI.finalizeStreamingMessage(handle, handle._raw);
+            handle = null;
+            if (this.isHandsFreeMode) {
+                UI.setHandsFreeStatus('error');
+                Voice.playErrorBeep();
+                setTimeout(() => this.startHandsFreeListening(), 2000);
+            }
+        };
+
+        try {
+            const ok = await WSVoice.startListening();
+            if (!ok && this.isHandsFreeMode) {
+                console.warn('[WSVoice] failed to start, falling back to HTTP');
+                await this._startHandsFreeHTTP();
+            }
+        } catch (err) {
+            console.error('[WSVoice] listen error:', err);
+            if (this.isHandsFreeMode) {
+                await this._startHandsFreeHTTP();
+            }
+        }
+    },
+
+    // ---- HTTP-based hands-free (fallback) ----
+
+    async _startHandsFreeHTTP() {
+        if (!this.isHandsFreeMode) return;
+
         try {
             UI.setHandsFreeStatus('listening');
             UI.clearLiveTranscript();
             UI.showLiveTypingIndicator();
-            
-            // Play listening beep
             await Voice.playListeningBeep();
-            
-            // Start recording with silence detection
+
             await Voice.startRecordingWithSilenceDetection(
-                // On silence detected - auto stop and process
                 async () => {
                     if (!this.isHandsFreeMode) return;
-                    await this.processHandsFreeInput();
+                    await this._processHandsFreeHTTP();
                 },
-                // Silence threshold in seconds
                 1.5
             );
-            
-            // Set timeout for no speech
-            this.resetHandsFreeTimeout();
-            
         } catch (error) {
             console.error('Hands-free listening error:', error);
             if (this.isHandsFreeMode) {
                 UI.setHandsFreeStatus('error');
                 UI.clearLiveTranscript();
                 await Voice.playErrorBeep();
-                // Try to restart listening after error
                 setTimeout(() => this.startHandsFreeListening(), 2000);
             }
         }
     },
-    
-    /**
-     * Process hands-free voice input
-     */
-    async processHandsFreeInput() {
+
+    async _processHandsFreeHTTP() {
         if (!this.isHandsFreeMode) return;
         
         try {
             UI.setHandsFreeStatus('processing');
-            
-            // Get the recorded audio
             const audioBlob = await Voice.stopRecording();
-            
-            // Store the last recording for playback
             this.lastRecording = audioBlob;
-            
-            // Transcribe with current language hint
             const transcription = await Voice.transcribe(audioBlob, UI.currentLanguage);
             
             if (!transcription.text || transcription.text.trim() === '') {
                 UI.clearLiveTranscript();
                 if (this.isHandsFreeMode) {
+                    await new Promise(r => setTimeout(r, 300));
                     this.startHandsFreeListening();
                 }
                 return;
@@ -699,16 +1285,10 @@ const App = {
             
             const userMessage = transcription.text.trim();
             console.log('Hands-free input:', userMessage);
-            
-            // Show user's speech on screen
             UI.updateLiveTranscript(userMessage, 'user');
             
-            // Check for exit commands
             if (this.isExitCommand(userMessage)) {
-                // Say goodbye
-                const goodbye = UI.currentLanguage === 'ar' 
-                    ? 'مع السلامة!' 
-                    : 'Goodbye!';
+                const goodbye = UI.currentLanguage === 'ar' ? 'مع السلامة!' : 'Goodbye!';
                 UI.setHandsFreeStatus('speaking');
                 UI.updateLiveTranscript(goodbye, 'assistant');
                 await Voice.speak(goodbye, UI.currentLanguage);
@@ -716,25 +1296,73 @@ const App = {
                 return;
             }
             
-            // Add to chat
             UI.addChatMessage(userMessage, true);
-            
-            // Get AI response
             UI.setHandsFreeStatus('thinking');
-            const response = await API.chat(userMessage, UI.currentLanguage);
-            
-            // Show AI response on screen
-            UI.updateLiveTranscript(response.response, 'assistant');
-            
-            // Add response to chat
-            UI.addChatMessage(response.response, false);
-            
-            // Speak the response
-            UI.setHandsFreeStatus('speaking');
-            await Voice.speak(response.response, response.language || UI.currentLanguage);
-            
-            // Continue listening if still in hands-free mode
+
+            await new Promise((resolve) => {
+                let handle = null;
+                let speakHandle = null;
+
+                API.chatStream(userMessage, UI.currentLanguage, {
+                    onRoute(_intent) {
+                        speakHandle = Voice.speakStreaming(UI.currentLanguage);
+                    },
+                    onToken(token) {
+                        if (!handle) {
+                            handle = UI.addStreamingMessage();
+                            UI.setHandsFreeStatus('speaking');
+                        }
+                        UI.appendToStreamingMessage(handle, token);
+                        UI.updateLiveTranscript(handle._raw, 'assistant');
+                        if (speakHandle) speakHandle.feedToken(token);
+                    },
+                    onThinkingStart() {
+                        if (!handle) {
+                            handle = UI.addStreamingMessage();
+                        }
+                        UI.startThinkingBlock(handle);
+                    },
+                    onThinking(content) {
+                        if (handle) UI.appendThinkingToken(handle, content);
+                    },
+                    onThinkingEnd() {
+                        if (handle) UI.endThinkingBlock(handle);
+                    },
+                    onCitations(_cit, refsText) {
+                        if (handle && refsText) {
+                            UI.appendToStreamingMessage(handle, refsText);
+                        }
+                    },
+                    onClear() {
+                        if (handle) UI.clearStreamingMessage(handle);
+                        if (speakHandle) speakHandle.reset();
+                    },
+                    onDone(fullResponse, language) {
+                        if (handle) {
+                            UI.finalizeStreamingMessage(handle, fullResponse);
+                        } else {
+                            UI.addChatMessage(fullResponse || '', false);
+                        }
+                        UI.updateLiveTranscript(fullResponse || '', 'assistant');
+                        UI.setHandsFreeStatus('speaking');
+
+                        if (speakHandle) {
+                            speakHandle.flush();
+                            speakHandle.waitForCompletion().then(resolve);
+                        } else {
+                            resolve();
+                        }
+                    },
+                    onError(msg) {
+                        if (handle) UI.finalizeStreamingMessage(handle, handle._raw);
+                        if (speakHandle) speakHandle.cancel();
+                        resolve();
+                    }
+                }, { voiceMode: true });
+            });
+
             if (this.isHandsFreeMode) {
+                await new Promise(r => setTimeout(r, 400));
                 this.startHandsFreeListening();
             }
             
@@ -744,15 +1372,11 @@ const App = {
             if (this.isHandsFreeMode) {
                 UI.setHandsFreeStatus('error');
                 await Voice.playErrorBeep();
-                
-                // Announce error
                 const errorMsg = UI.currentLanguage === 'ar'
                     ? 'حدث خطأ. حاول مرة أخرى.'
                     : 'An error occurred. Please try again.';
                 UI.updateLiveTranscript(errorMsg, 'assistant');
                 await Voice.speak(errorMsg, UI.currentLanguage);
-                
-                // Restart listening
                 setTimeout(() => this.startHandsFreeListening(), 1000);
             }
         }
@@ -767,28 +1391,6 @@ const App = {
             lowerMessage === cmd.toLowerCase() || 
             lowerMessage.includes(cmd.toLowerCase())
         );
-    },
-    
-    /**
-     * Reset the hands-free timeout
-     */
-    resetHandsFreeTimeout() {
-        if (this.handsFreeTimeout) {
-            clearTimeout(this.handsFreeTimeout);
-        }
-        
-        this.handsFreeTimeout = setTimeout(async () => {
-            if (this.isHandsFreeMode) {
-                // Announce timeout
-                const timeoutMsg = UI.currentLanguage === 'ar'
-                    ? 'انتهت المهلة. إنهاء وضع التحدث الحر.'
-                    : 'Session timed out. Exiting hands-free mode.';
-                
-                UI.setHandsFreeStatus('speaking');
-                await Voice.speak(timeoutMsg, UI.currentLanguage);
-                this.exitHandsFreeMode();
-            }
-        }, this.handsFreeTimeoutDuration);
     },
     
     /**
