@@ -325,6 +325,10 @@ const WSVoice = {
                 console.log('[WSVoice] <<< transcript |', msg.text, '| lang:', msg.language, '| conf:', msg.confidence);
                 this.callbacks.onTranscript?.(msg.text, msg.language, msg.confidence);
                 break;
+            case 'status':
+                console.log('[WSVoice] <<< status |', msg.message);
+                this.callbacks.onStatus?.(msg.message);
+                break;
             case 'route':
                 console.log('[WSVoice] <<< route |', msg.intent);
                 this.callbacks.onRoute?.(msg.intent);
@@ -381,6 +385,7 @@ const WSVoice = {
         console.log('[WSVoice] audio drain started | queue:', this._audioQueue.length);
 
         let playedCount = 0;
+        let errorCount = 0;
         while (this._audioQueue.length > 0) {
             const blob = this._audioQueue.shift();
             try {
@@ -388,31 +393,52 @@ const WSVoice = {
                 console.log('[WSVoice] playing audio', playedCount, '| size:', blob.size, 'bytes | remaining:', this._audioQueue.length);
                 await this._playBlob(blob);
             } catch (err) {
-                console.warn('[WSVoice] audio playback error:', err);
+                errorCount++;
+                console.error('[WSVoice] audio playback FAILED:', err, '| blob size:', blob.size);
             }
         }
 
-        console.log('[WSVoice] audio drain complete | played:', playedCount);
+        console.log('[WSVoice] audio drain complete | played:', playedCount, '| errors:', errorCount);
         this._audioPlaying = false;
         this._ttsResolve?.();
         this._ttsResolve = null;
     },
 
+    _ttsAudioEl: null,
+
     _playBlob(blob) {
         return new Promise((resolve, reject) => {
-            const audio = new Audio();
+            if (!this._ttsAudioEl) {
+                this._ttsAudioEl = new Audio();
+            }
+            const audio = this._ttsAudioEl;
             const url = URL.createObjectURL(blob);
-            audio.src = url;
+
+            const cleanup = () => {
+                audio.onended = null;
+                audio.onerror = null;
+                URL.revokeObjectURL(url);
+            };
 
             audio.onended = () => {
-                URL.revokeObjectURL(url);
+                console.log('[WSVoice] audio playback ended OK');
+                cleanup();
                 resolve();
             };
             audio.onerror = (e) => {
-                URL.revokeObjectURL(url);
+                console.error('[WSVoice] audio playback error:', e, '| blob size:', blob.size, '| type:', blob.type);
+                cleanup();
                 reject(e);
             };
-            audio.play().catch(reject);
+
+            audio.src = url;
+            audio.play().then(() => {
+                console.log('[WSVoice] audio.play() started | duration:', audio.duration);
+            }).catch((err) => {
+                console.error('[WSVoice] audio.play() rejected:', err);
+                cleanup();
+                reject(err);
+            });
         });
     },
 

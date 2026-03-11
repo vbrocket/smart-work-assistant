@@ -124,6 +124,28 @@ Today: {date}""",
 اليوم: {date}"""
     }
 
+    GENERAL_SYSTEM_PROMPTS = {
+        'en': """You are a friendly and helpful AI assistant. You can chat about any topic, answer general knowledge questions, and have natural conversations.
+
+Rules:
+- Be direct, concise, and helpful.
+- Match the user's language.
+- You do NOT have access to the user's emails, calendar, or tasks right now. If they ask about those, tell them you can help with that — just ask directly (e.g. "show me my emails" or "what meetings do I have today").
+- NEVER invent, fabricate, or hallucinate any emails, meetings, tasks, or workspace data.
+
+Today: {date}""",
+
+        'ar': """أنت مساعد ذكي ودود. يمكنك الدردشة في أي موضوع والإجابة على الأسئلة العامة وإجراء محادثات طبيعية.
+
+القواعد:
+- كن مباشراً وموجزاً ومفيداً.
+- طابق لغة المستخدم.
+- ليس لديك حالياً وصول لبريد المستخدم أو تقويمه أو مهامه. إذا سأل عنها، أخبره أنك تستطيع المساعدة — فقط يسأل مباشرة (مثلاً "وش عندي اليوم" أو "ورني ايميلاتي").
+- ممنوع منعاً باتاً اختراع أو تخيل أي بريد أو اجتماعات أو مهام أو بيانات عمل.
+
+اليوم: {date}"""
+    }
+
     VOICE_ADDON = {
         'en': """
 
@@ -279,10 +301,11 @@ Be concise (3-5 sentences). Use specific names, times, and subjects.
         self.max_history = 10
         self.employee_profile: Dict[str, str] = {}
     
-    def _get_system_prompt(self, language: str, voice_mode: bool = False) -> str:
+    def _get_system_prompt(self, language: str, voice_mode: bool = False, general: bool = False) -> str:
         """Get the system prompt for the given language, with optional voice addon."""
         lang_key = language if language in self.SYSTEM_PROMPTS else 'en'
-        prompt = self.SYSTEM_PROMPTS[lang_key].format(date=datetime.now().strftime("%Y-%m-%d"))
+        prompts = self.GENERAL_SYSTEM_PROMPTS if general else self.SYSTEM_PROMPTS
+        prompt = prompts[lang_key].format(date=datetime.now().strftime("%Y-%m-%d"))
         if voice_mode:
             prompt += self.VOICE_ADDON.get(lang_key, self.VOICE_ADDON['en'])
         return prompt
@@ -309,7 +332,7 @@ Be concise (3-5 sentences). Use specific names, times, and subjects.
         logger.info(f"Chat request | language={language} | message_length={len(message)} | history={include_history} | voice={voice_mode}")
         
         messages = [
-            {"role": "system", "content": self._get_system_prompt(language, voice_mode)}
+            {"role": "system", "content": self._get_system_prompt(language, voice_mode, general=True)}
         ]
         
         if include_history:
@@ -347,7 +370,7 @@ Be concise (3-5 sentences). Use specific names, times, and subjects.
     ) -> AsyncIterator[str]:
         """Stream tokens for a chat message."""
         messages = [
-            {"role": "system", "content": self._get_system_prompt(language, voice_mode)}
+            {"role": "system", "content": self._get_system_prompt(language, voice_mode, general=True)}
         ]
         if include_history:
             messages.extend(self.conversation_history[-self.max_history:])

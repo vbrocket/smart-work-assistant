@@ -147,6 +147,9 @@ const API = {
                         try { evt = JSON.parse(jsonStr); } catch { continue; }
 
                         switch (evt.type) {
+                            case 'status':
+                                callbacks.onStatus?.(evt.message);
+                                break;
                             case 'route':
                                 callbacks.onRoute?.(evt.intent);
                                 break;

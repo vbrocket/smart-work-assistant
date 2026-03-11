@@ -455,6 +455,10 @@ const App = {
                     App.isAuthenticated = false;
                     UI.showAuthBanner('expired');
                 },
+                onStatus(message) {
+                    UI.removeLoadingMessage();
+                    loadingMessage = UI.addLoadingMessage(message);
+                },
                 onRoute(_intent) {
                     if (voiceMode) {
                         speakHandle = Voice.speakStreaming(UI.currentLanguage);
@@ -1156,6 +1160,10 @@ const App = {
 
             UI.addChatMessage(userMessage, true);
             UI.setHandsFreeStatus('thinking');
+        };
+
+        WSVoice.callbacks.onStatus = (message) => {
+            UI.setHandsFreeStatus('thinking', message);
         };
 
         WSVoice.callbacks.onRoute = (_intent) => {};

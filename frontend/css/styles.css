@@ -1226,6 +1226,14 @@ body {
     to { transform: rotate(360deg); }
 }
 
+.loading-status-text {
+    display: inline-block;
+    margin-inline-start: 10px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    vertical-align: middle;
+}
+
 .muted {
     color: var(--text-muted);
 }

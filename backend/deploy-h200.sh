@@ -3,7 +3,8 @@
 # deploy-h200.sh — Start all services on a vast.ai single-GPU H200 NVL instance.
 #
 # GPU layout (single GPU, all on GPU 0, ~141 GB VRAM):
-#   GPU 0 → vLLM LLM       (Qwen3-32B, TP=1)     port 8001  (55%)
+#   GPU 0 → vLLM LLM       (Qwen3-32B, TP=1)     port 8001  (70%)
+#            vLLM Router    (Qwen2.5-3B-Instruct)  port 8004  (5%)
 #            vLLM Embedding (BGE-M3)               port 8002  (10%)
 #            vLLM Reranker  (bge-reranker-v2-m3)   port 8003  (5%)
 #            Whisper + TTS (in-process in FastAPI app)
@@ -30,6 +31,10 @@ EMBED_GPU="${VLLM_EMBED_GPU:-0}"
 RERANK_MODEL="${VLLM_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}"
 RERANK_PORT="${VLLM_RERANK_PORT:-8003}"
 RERANK_GPU="${VLLM_RERANK_GPU:-0}"
+
+ROUTER_MODEL="${VLLM_ROUTER_MODEL:-Qwen/Qwen2.5-3B-Instruct}"
+ROUTER_PORT="${VLLM_ROUTER_PORT:-8004}"
+ROUTER_GPU="${VLLM_ROUTER_GPU:-0}"
 
 APP_PORT="${APP_PORT:-18000}"
 
@@ -82,7 +87,7 @@ verify_gpu() {
     fi
 }
 
-PID_LLM="" PID_EMBED="" PID_RERANK="" PID_APP=""
+PID_LLM="" PID_EMBED="" PID_RERANK="" PID_ROUTER="" PID_APP=""
 _OWNED_PIDS=""
 
 cleanup() {
@@ -126,7 +131,7 @@ is_vllm_serving() {
     return 1
 }
 
-SKIP_LLM=0 SKIP_EMBED=0 SKIP_RERANK=0
+SKIP_LLM=0 SKIP_EMBED=0 SKIP_RERANK=0 SKIP_ROUTER=0
 
 if is_vllm_serving "$LLM_PORT" "$LLM_MODEL"; then
     logg "LLM already running on port $LLM_PORT ($LLM_MODEL) — skipping"
@@ -144,6 +149,12 @@ if is_vllm_serving "$RERANK_PORT" "$RERANK_MODEL"; then
     logg "Reranker already running on port $RERANK_PORT ($RERANK_MODEL) — skipping"
     SKIP_RERANK=1
     PID_RERANK=$(lsof -ti ":$RERANK_PORT" 2>/dev/null | head -1 || true)
+fi
+
+if is_vllm_serving "$ROUTER_PORT" "$ROUTER_MODEL"; then
+    logg "Router LLM already running on port $ROUTER_PORT ($ROUTER_MODEL) — skipping"
+    SKIP_ROUTER=1
+    PID_ROUTER=$(lsof -ti ":$ROUTER_PORT" 2>/dev/null | head -1 || true)
 fi
 
 kill_port "$APP_PORT"
@@ -234,15 +245,35 @@ if [ "$SKIP_RERANK" -eq 0 ]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════
+# 5b. START VLLM — ROUTER LLM (GPU 0, 5% VRAM)
+# ═════════════════════════════════════════════════════════════════════════
+
+if [ "$SKIP_ROUTER" -eq 0 ]; then
+    log "━━━ Starting Router LLM: $ROUTER_MODEL on GPU $ROUTER_GPU, port $ROUTER_PORT ━━━"
+    kill_port "$ROUTER_PORT"
+    CUDA_VISIBLE_DEVICES="$ROUTER_GPU" vllm serve "$ROUTER_MODEL" \
+        --port "$ROUTER_PORT" \
+        --gpu-memory-utilization 0.25 \
+        --max-model-len 2048 \
+        --dtype bfloat16 \
+        --disable-log-requests \
+        > "$LOG_DIR/vllm_router.log" 2>&1 &
+    PID_ROUTER=$!
+    _OWNED_PIDS="$_OWNED_PIDS $PID_ROUTER"
+    log "Router LLM server started (PID $PID_ROUTER, log: $LOG_DIR/vllm_router.log)"
+fi
+
+# ═════════════════════════════════════════════════════════════════════════
 # 6. WAIT FOR ALL VLLM SERVERS
 # ═════════════════════════════════════════════════════════════════════════
 
-LLM_OK=$SKIP_LLM EMBED_OK=$SKIP_EMBED RERANK_OK=$SKIP_RERANK
+LLM_OK=$SKIP_LLM EMBED_OK=$SKIP_EMBED RERANK_OK=$SKIP_RERANK ROUTER_OK=$SKIP_ROUTER
 
 NEED_WAIT=0
 [ "$SKIP_LLM" -eq 0 ] && NEED_WAIT=1
 [ "$SKIP_EMBED" -eq 0 ] && NEED_WAIT=1
 [ "$SKIP_RERANK" -eq 0 ] && NEED_WAIT=1
+[ "$SKIP_ROUTER" -eq 0 ] && NEED_WAIT=1
 
 if [ "$NEED_WAIT" -eq 1 ]; then
     log ""
@@ -278,6 +309,16 @@ if [ "$SKIP_RERANK" -eq 0 ]; then
     else
         logr "Reranker failed to start. Last 20 lines of log:"
         tail -20 "$LOG_DIR/vllm_rerank.log" 2>/dev/null
+    fi
+fi
+
+if [ "$SKIP_ROUTER" -eq 0 ]; then
+    if wait_for_port "$ROUTER_PORT" "vLLM Router" 180 "$PID_ROUTER"; then
+        verify_gpu "$ROUTER_GPU" "Router"
+        ROUTER_OK=1
+    else
+        logr "Router LLM failed to start. Last 20 lines of log:"
+        tail -20 "$LOG_DIR/vllm_router.log" 2>/dev/null
     fi
 fi
 
@@ -330,10 +371,11 @@ log "├───────────────┼────────
 printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "LLM" "$LLM_MODEL" "$LLM_PORT" "$LLM_GPU" "$(_status_label $SKIP_LLM)"
 printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "Embedding" "$EMBED_MODEL" "$EMBED_PORT" "$EMBED_GPU" "$(_status_label $SKIP_EMBED)"
 printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "Reranker" "$RERANK_MODEL" "$RERANK_PORT" "$RERANK_GPU" "$(_status_label $SKIP_RERANK)"
+printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "Router" "$ROUTER_MODEL" "$ROUTER_PORT" "$ROUTER_GPU" "$(_status_label $SKIP_ROUTER)"
 printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "App" "FastAPI" "$APP_PORT" "—" "started"
 log "└───────────────┴──────────────────────────────┴───────┴───────┴──────┘"
 log ""
-log "PIDs: LLM=$PID_LLM  Embed=$PID_EMBED  Reranker=$PID_RERANK  App=$PID_APP"
+log "PIDs: LLM=$PID_LLM  Embed=$PID_EMBED  Reranker=$PID_RERANK  Router=$PID_ROUTER  App=$PID_APP"
 log "Logs: $LOG_DIR/"
 log ""
 log "Access the app:"

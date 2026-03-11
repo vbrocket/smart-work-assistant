@@ -7,7 +7,8 @@
 # All models share GPU 0 — no tensor parallelism needed.
 #
 # GPU layout (single GPU):
-#   GPU 0 → LLM       (Qwen3-32B)             port 8001  (55%)
+#   GPU 0 → LLM       (Qwen3-32B)             port 8001  (70%)
+#            Router    (Qwen2.5-3B-Instruct)   port 8004  (5%)
 #            Embedding (BGE-M3)                port 8002  (10%)
 #            Reranker  (bge-reranker-v2-m3)    port 8003  (5%)
 #            Whisper + TTS (in-process)
@@ -32,6 +33,10 @@ EMBED_GPU="${VLLM_EMBED_GPU:-0}"
 RERANK_MODEL="${VLLM_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}"
 RERANK_PORT="${VLLM_RERANK_PORT:-8003}"
 RERANK_GPU="${VLLM_RERANK_GPU:-0}"
+
+ROUTER_MODEL="${VLLM_ROUTER_MODEL:-Qwen/Qwen2.5-3B-Instruct}"
+ROUTER_PORT="${VLLM_ROUTER_PORT:-8004}"
+ROUTER_GPU="${VLLM_ROUTER_GPU:-0}"
 
 WHISPER_MODEL="${WHISPER_MODEL:-large-v3-turbo}"
 
@@ -118,7 +123,7 @@ else
     pass "No leftover GPU processes"
 fi
 
-for port in $LLM_PORT $EMBED_PORT $RERANK_PORT 8000; do
+for port in $LLM_PORT $EMBED_PORT $RERANK_PORT $ROUTER_PORT 8000; do
     kill_port "$port"
 done
 
@@ -165,10 +170,11 @@ else
     done
     echo ""
     info "GPU assignment plan (single GPU — all on GPU 0):"
-    info "  GPU $LLM_GPU   → LLM ($LLM_MODEL) on port $LLM_PORT"
-    info "  GPU $EMBED_GPU → Embedding ($EMBED_MODEL) on port $EMBED_PORT"
+    info "  GPU $LLM_GPU    → LLM ($LLM_MODEL) on port $LLM_PORT"
+    info "  GPU $ROUTER_GPU → Router ($ROUTER_MODEL) on port $ROUTER_PORT"
+    info "  GPU $EMBED_GPU  → Embedding ($EMBED_MODEL) on port $EMBED_PORT"
     info "  GPU $RERANK_GPU → Reranker ($RERANK_MODEL) on port $RERANK_PORT"
-    info "  GPU 0          → Whisper + TTS (in-process, shared)"
+    info "  GPU 0           → Whisper + TTS (in-process, shared)"
 fi
 
 if ! command -v nvcc &>/dev/null; then
@@ -463,6 +469,17 @@ fi
 sleep 3
 
 echo ""
+info "━━━ Router LLM Smoke Test ━━━"
+if smoke_test_vllm "$ROUTER_MODEL" "generate" "$ROUTER_PORT" "$ROUTER_GPU" "Router" "0.25" "2048" "bfloat16"; then
+    pass "Router LLM smoke test PASSED"
+else
+    fail "Router LLM smoke test FAILED"
+    info "Check: $LOG_DIR/smoke_Router.log"
+fi
+
+sleep 3
+
+echo ""
 info "━━━ Whisper CUDA Test ━━━"
 $PY_CMD -c "
 from faster_whisper import WhisperModel
@@ -482,7 +499,7 @@ else
 fi
 
 sleep 3
-for port in $LLM_PORT $EMBED_PORT $RERANK_PORT; do
+for port in $LLM_PORT $EMBED_PORT $RERANK_PORT $ROUTER_PORT; do
     kill_port "$port"
 done
 GPU_PIDS=$(fuser /dev/nvidia* 2>/dev/null | tr -s ' ' '\n' | sort -u | tr '\n' ' ' || true)
@@ -522,6 +539,7 @@ echo "  ├───────┬───────────────
 echo "  │  GPU  │  Model                         │  Port │  Task      │"
 echo "  ├───────┼────────────────────────────────┼───────┼────────────┤"
 printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$LLM_GPU" "$LLM_MODEL" "$LLM_PORT" "generate"
+printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$ROUTER_GPU" "$ROUTER_MODEL" "$ROUTER_PORT" "generate"
 printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$EMBED_GPU" "$EMBED_MODEL" "$EMBED_PORT" "embed"
 printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$RERANK_GPU" "$RERANK_MODEL" "$RERANK_PORT" "score"
 printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "0" "Whisper ($WHISPER_MODEL)" "—" "in-process"

@@ -153,27 +153,38 @@ class _VoiceSession:
         tts_service = get_tts_service()
         orchestrator = get_orchestrator()
 
-        emails_data, tasks_data, events_data = [], [], []
-        async with AsyncSessionLocal() as db:
-            emails_data, tasks_data, events_data = await _sync_and_fetch_context(db)
-
+        # 1. Route via LLM orchestrator (fast, no sync needed)
         rag_has_docs = rag_service.get_status().get("indexed_chunks", 0) > 0
 
         decision = await orchestrator.route(
             message=transcript,
             language=self.language,
-            available_context={
-                "has_policy_docs": rag_has_docs,
-                "has_emails": bool(emails_data),
-                "has_tasks": bool(tasks_data),
-                "has_calendar": bool(events_data),
-            },
+            has_policy_docs=rag_has_docs,
+            conversation_history=llm_service.conversation_history,
         )
         logger.info(
             "WS pipeline | intent=%s conf=%.2f voice=%s",
             decision.intent, decision.confidence, self.voice_mode,
         )
         await _safe_send_json(ws, {"type": "route", "intent": decision.intent})
+
+        # 2. Sync Outlook only when workspace route is chosen
+        emails_data, tasks_data, events_data = [], [], []
+        if decision.intent == ROUTE_WORKSPACE:
+            status_msg = "جاري تحميل بيانات العمل..." if self.language == "ar" else "Fetching your workspace data..."
+            await _safe_send_json(ws, {"type": "status", "message": status_msg})
+            if self.voice_mode:
+                try:
+                    audio = await tts_service.synthesize(
+                        text=status_msg, language=self.language, gender="male",
+                    )
+                    if audio:
+                        await _safe_send_json(ws, {"type": "tts_start", "sentence": status_msg})
+                        await _safe_send_bytes(ws, audio)
+                except Exception as exc:
+                    logger.warning("Status TTS failed: %s", exc)
+            async with AsyncSessionLocal() as db:
+                emails_data, tasks_data, events_data = await _sync_and_fetch_context(db)
 
         if self.cancelled:
             return

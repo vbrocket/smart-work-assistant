@@ -42,9 +42,19 @@ CUDA_VISIBLE_DEVICES=0 nohup vllm serve BAAI/bge-reranker-v2-m3 \
     > logs/vllm_rerank.log 2>&1 &
 echo "  Reranker PID=$!"
 
-echo "[$(date '+%H:%M:%S')] All 3 vLLM servers started. Waiting for readiness..."
+echo "[$(date '+%H:%M:%S')] Starting Router LLM (Qwen2.5-3B-Instruct, GPU 0, 25% VRAM)..."
+CUDA_VISIBLE_DEVICES=0 nohup vllm serve Qwen/Qwen2.5-3B-Instruct \
+    --port 8004 \
+    --gpu-memory-utilization 0.25 \
+    --max-model-len 2048 \
+    --dtype bfloat16 \
+    --disable-log-requests \
+    > logs/vllm_router.log 2>&1 &
+echo "  Router PID=$!"
 
-for port_name in "8001:LLM" "8002:Embedding" "8003:Reranker"; do
+echo "[$(date '+%H:%M:%S')] All 4 vLLM servers started. Waiting for readiness..."
+
+for port_name in "8001:LLM" "8002:Embedding" "8003:Reranker" "8004:Router"; do
     port="${port_name%%:*}"
     name="${port_name##*:}"
     echo -n "  Waiting for $name (port $port)..."

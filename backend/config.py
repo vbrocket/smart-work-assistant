@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     vllm_rerank_url: str = "http://localhost:8003"
     vllm_rerank_model: str = "BAAI/bge-reranker-v2-m3"
 
+    # vLLM Router (small fast model for intent classification)
+    vllm_router_url: str = "http://localhost:8004/v1"
+    vllm_router_model: str = "Qwen/Qwen2.5-3B-Instruct"
+
     @property
     def effective_embed_backend(self) -> str:
         """Resolved embedding backend: EMBED_BACKEND if set, else LLM_BACKEND."""

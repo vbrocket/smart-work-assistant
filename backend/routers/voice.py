@@ -336,13 +336,9 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
         try:
             llm_service = get_llm_service()
             language = request.language or "en"
+            voice_mode = bool(request.voice_mode)
 
-            emails_data, tasks_data, events_data = [], [], []
-            if request.include_context:
-                emails_data, tasks_data, events_data = await _sync_and_fetch_context(db)
-                if not emails_data and not tasks_data and not events_data:
-                    yield _sse_event({"type": "auth_required"})
-
+            # 1. Route via LLM orchestrator (fast, no sync needed)
             rag_service = get_rag_service()
             rag_has_docs = rag_service.get_status()["indexed_chunks"] > 0
 
@@ -350,18 +346,22 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
             decision = await orchestrator.route(
                 message=request.message,
                 language=language,
-                available_context={
-                    "has_policy_docs": rag_has_docs,
-                    "has_emails": bool(emails_data),
-                    "has_tasks": bool(tasks_data),
-                    "has_calendar": bool(events_data),
-                },
+                has_policy_docs=rag_has_docs,
+                conversation_history=llm_service.conversation_history,
             )
-            voice_mode = bool(request.voice_mode)
             logger.info("STREAM ROUTE | intent=%s conf=%.2f voice=%s",
                         decision.intent, decision.confidence, voice_mode)
             yield _sse_event({"type": "route", "intent": decision.intent,
                               "voice_mode": voice_mode})
+
+            # 2. Sync Outlook only when workspace route is chosen
+            emails_data, tasks_data, events_data = [], [], []
+            if decision.intent == ROUTE_WORKSPACE and request.include_context:
+                status_msg = "جاري تحميل بيانات العمل..." if language == "ar" else "Fetching your workspace data..."
+                yield _sse_event({"type": "status", "message": status_msg})
+                emails_data, tasks_data, events_data = await _sync_and_fetch_context(db)
+                if not emails_data and not tasks_data and not events_data:
+                    yield _sse_event({"type": "auth_required"})
 
             full_response = ""
             _in_think = False
@@ -479,13 +479,10 @@ async def voice_chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     try:
         llm_service = get_llm_service()
         logger.debug(f"LLM Service initialized | model={llm_service.provider.model_name}")
-        
-        emails_data, tasks_data, events_data = [], [], []
-        if request.include_context:
-            emails_data, tasks_data, events_data = await _sync_and_fetch_context(db)
-        
-        # ---- Orchestrator: route message to the right agent ----
+
         language = request.language or "en"
+
+        # 1. Route via LLM orchestrator (fast, no sync needed)
         rag_service = get_rag_service()
         rag_has_docs = rag_service.get_status()["indexed_chunks"] > 0
 
@@ -493,18 +490,19 @@ async def voice_chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         decision = await orchestrator.route(
             message=request.message,
             language=language,
-            available_context={
-                "has_policy_docs": rag_has_docs,
-                "has_emails": bool(emails_data),
-                "has_tasks": bool(tasks_data),
-                "has_calendar": bool(events_data),
-            },
+            has_policy_docs=rag_has_docs,
+            conversation_history=llm_service.conversation_history,
         )
 
         logger.info(
             "CHAT ROUTE | intent=%s conf=%.2f | rag_has_docs=%s | reason=%s",
             decision.intent, decision.confidence, rag_has_docs, decision.reasoning,
         )
+
+        # 2. Sync Outlook only when workspace route is chosen
+        emails_data, tasks_data, events_data = [], [], []
+        if decision.intent == ROUTE_WORKSPACE and request.include_context:
+            emails_data, tasks_data, events_data = await _sync_and_fetch_context(db)
 
         if decision.intent == ROUTE_POLICY_QA and rag_has_docs:
             logger.info(">>> Routing to POLICY QA agent")

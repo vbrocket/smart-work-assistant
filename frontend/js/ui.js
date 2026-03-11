@@ -717,15 +717,16 @@ const UI = {
     /**
      * Add loading message
      */
-    addLoadingMessage() {
+    addLoadingMessage(statusText) {
         const chatMessages = document.getElementById('chatMessages');
         
         const messageRow = document.createElement('div');
         messageRow.className = 'message-row assistant loading-message';
+        const label = statusText ? `<span class="loading-status-text">${statusText}</span>` : '';
         messageRow.innerHTML = `
             <div class="assistant-avatar">🤖</div>
             <div class="message-bubble assistant">
-                <div class="spinner"></div>
+                <div class="spinner"></div>${label}
             </div>
         `;
         
@@ -989,18 +990,16 @@ const UI = {
     /**
      * Set hands-free status display
      */
-    setHandsFreeStatus(status) {
-        const statusText = document.getElementById('handsFreeStatus');
+    setHandsFreeStatus(status, customText) {
+        const statusEl = document.getElementById('handsFreeStatus');
         const micIcon = document.querySelector('.handsfree-mic');
-        
-        if (statusText) {
-            statusText.textContent = this.t(`handsfree.${status}`) || status;
+
+        if (statusEl) {
+            statusEl.textContent = customText || this.t(`handsfree.${status}`) || status;
         }
-        
+
         if (micIcon) {
-            // Remove all status classes
             micIcon.classList.remove('listening', 'processing', 'thinking', 'speaking', 'error');
-            // Add current status class
             micIcon.classList.add(status);
         }
     },
