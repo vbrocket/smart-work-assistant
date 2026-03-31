@@ -93,10 +93,10 @@ class Settings(BaseSettings):
 
     # Retrieval tuning
     rag_fusion_method: str = "rrf"
-    rag_dense_top_k: int = 20
-    rag_bm25_top_k: int = 20
-    rag_rerank_top_k: int = 12
-    rag_final_top_k: int = 6
+    rag_dense_top_k: int = 30
+    rag_bm25_top_k: int = 30
+    rag_rerank_top_k: int = 20
+    rag_final_top_k: int = 10
 
     # Chunking
     rag_chunk_max_tokens: int = 1100

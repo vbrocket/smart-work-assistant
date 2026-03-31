@@ -109,6 +109,60 @@ def _extract_doc_version(filename: str) -> str:
     return m.group(1) if m else ""
 
 
+def _build_page_section_map(text_chunks: List[Any]) -> Dict[int, List[str]]:
+    """Build a mapping of page_num -> ordered list of section_ids from text chunks.
+
+    Returns all dotted section_ids found on each page in document order.
+    The table extractor uses the first (earliest) section as fallback, which
+    is more accurate on pages that span multiple top-level sections.
+    """
+    from collections import defaultdict
+    page_sids: Dict[int, List[str]] = defaultdict(list)
+    for chunk in text_chunks:
+        pg = chunk.page_start
+        sid = chunk.section_id
+        if pg and sid and "." in sid:
+            parts = sid.split(".")
+            prefix = ".".join(parts[:2]) if len(parts) >= 2 else sid
+            if not page_sids[pg] or page_sids[pg][-1] != prefix:
+                page_sids[pg].append(prefix)
+
+    return dict(page_sids)
+
+
+def _extract_text_excluding_bboxes(page: Any, bboxes: list) -> str:
+    """Extract text from a PyMuPDF page, skipping content within table bounding boxes.
+
+    Uses the 'dict' output to get per-block coordinates and filters out any text
+    block whose vertical centre falls inside a table region.
+    """
+    try:
+        blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+    except Exception:
+        return page.get_text("text") or ""
+
+    kept_lines: list = []
+    for block in blocks:
+        if block.get("type") != 0:
+            continue
+        bx0, by0, bx1, by1 = block["bbox"]
+        block_cy = (by0 + by1) / 2
+        in_table = False
+        for tb in bboxes:
+            tx0, ty0, tx1, ty1 = tb[:4]
+            if tx0 <= bx0 and bx1 <= tx1 and ty0 <= block_cy <= ty1:
+                in_table = True
+                break
+        if in_table:
+            continue
+        for line in block.get("lines", []):
+            spans_text = "".join(span.get("text", "") for span in line.get("spans", []))
+            if spans_text.strip():
+                kept_lines.append(spans_text)
+
+    return "\n".join(kept_lines)
+
+
 class IngestionPipeline:
     """Orchestrates document loading, chunking, table extraction, embedding, and storage."""
 
@@ -153,15 +207,18 @@ class IngestionPipeline:
             doc_version = _extract_doc_version(filename)
 
             if ext == "pdf":
-                pages = self._load_pdf(filepath, filename)
+                table_bboxes = self.table_extractor.get_table_bboxes(filepath)
+                pages = self._load_pdf(filepath, filename, table_bboxes)
                 text_chunks = self.chunker.chunk_pages(
                     pages, doc_id=doc_id, doc_name=filename, doc_version=doc_version,
                 )
-                table_rows = self.table_extractor.extract(
-                    filepath, doc_id=doc_id, doc_name=filename, doc_version=doc_version,
+                page_section_map = _build_page_section_map(text_chunks)
+                table_chunks = self.table_extractor.extract(
+                    filepath, doc_id=doc_id, doc_name=filename,
+                    doc_version=doc_version, page_section_map=page_section_map,
                 )
                 all_records.extend(text_chunks)
-                all_records.extend(table_rows)
+                all_records.extend(table_chunks)
                 source_files.append(filename)
             elif ext in ("docx",):
                 pages = self._load_docx(filepath, filename)
@@ -200,20 +257,26 @@ class IngestionPipeline:
         # Write marker so startup can detect backend mismatches
         self._write_backend_marker()
 
+        n_text = sum(1 for r in all_records if r.chunk_type == "text_clause")
+        n_table = sum(1 for r in all_records if r.chunk_type == "table")
+        n_table_row = sum(1 for r in all_records if r.chunk_type == "table_row")
+
         logger.info(
-            "Ingestion complete | files=%d | chunks=%d (text=%d, table=%d)",
+            "Ingestion complete | files=%d | chunks=%d (text=%d, table=%d, table_row=%d)",
             len(source_files),
             len(all_records),
-            sum(1 for r in all_records if r.chunk_type == "text_clause"),
-            sum(1 for r in all_records if r.chunk_type == "table_row"),
+            n_text,
+            n_table,
+            n_table_row,
         )
 
         return {
             "status": "success",
             "documents": len(source_files),
             "chunks": len(all_records),
-            "text_chunks": sum(1 for r in all_records if r.chunk_type == "text_clause"),
-            "table_rows": sum(1 for r in all_records if r.chunk_type == "table_row"),
+            "text_chunks": n_text,
+            "table_chunks": n_table,
+            "table_rows": n_table_row,
             "source_files": source_files,
             "ingested_at": self._last_ingestion,
         }
@@ -282,7 +345,12 @@ class IngestionPipeline:
     # ── Document loaders ───────────────────────────────────────────
 
     @staticmethod
-    def _load_pdf(filepath: str, filename: str) -> List[Dict[str, Any]]:
+    def _load_pdf(
+        filepath: str,
+        filename: str,
+        table_bboxes: Optional[Dict[int, list]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Load PDF pages, optionally redacting table regions to avoid double-ingestion."""
         if not PYMUPDF_AVAILABLE:
             logger.error("pymupdf not installed – cannot read PDF files")
             return []
@@ -290,11 +358,16 @@ class IngestionPipeline:
         try:
             doc = fitz.open(filepath)
             for i, page in enumerate(doc):
-                text = page.get_text("text") or ""
+                page_num = i + 1
+                bboxes = (table_bboxes or {}).get(page_num, [])
+                if bboxes:
+                    text = _extract_text_excluding_bboxes(page, bboxes)
+                else:
+                    text = page.get_text("text") or ""
                 if text.strip():
                     text = _fix_reversed_arabic(text)
                     text = unicodedata.normalize("NFKC", text)
-                    pages.append({"text": text, "page": i + 1})
+                    pages.append({"text": text, "page": page_num})
             doc.close()
         except Exception as e:
             logger.error("Failed to read PDF %s: %s", filename, e)

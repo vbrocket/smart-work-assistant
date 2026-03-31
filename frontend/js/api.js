@@ -393,7 +393,22 @@ const API = {
     async getPolicyStatus() {
         return this.request('/policy/status');
     },
+
+    async getPolicyChunks(page = 1, pageSize = 50, chunkType = null, search = null) {
+        let url = `/policy/chunks?page=${page}&page_size=${pageSize}`;
+        if (chunkType) url += `&chunk_type=${encodeURIComponent(chunkType)}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        return this.request(url);
+    },
     
+    async queryPolicyTrace(question) {
+        return this.request('/policy/query-trace', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question }),
+        });
+    },
+
     // ============ Summary Endpoints ============
     
     async getDailySummary() {

@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from .bm25_store import BM25Store
 from .embedder import Embedder
-from .models import DocHit, RetrievalDebug
+from .models import DocHit, RetrievalDebug, RetrievalTrace, ScoredHitInfo
 from .reranker import Reranker
 from .vector_store import VectorStoreBase
 
@@ -94,7 +94,7 @@ class HybridRetriever:
         final_top_k: int = 8,
         fusion_method: str = "rrf",
         expand_context: bool = True,
-        max_context_chunks: int = 10,
+        max_context_chunks: int = 15,
     ):
         self.vector_store = vector_store
         self.bm25_store = bm25_store
@@ -158,6 +158,72 @@ class HybridRetriever:
         )
         return reranked, debug
 
+    async def retrieve_with_trace(self, query: str) -> tuple[list[DocHit], RetrievalTrace]:
+        """Like retrieve(), but returns a full scored trace for the debug UI."""
+        import time
+        timings: dict = {}
+        query = unicodedata.normalize("NFKC", query)
+
+        def _to_info(hits: list[DocHit], limit: int = 15) -> list[ScoredHitInfo]:
+            return [
+                ScoredHitInfo(
+                    chunk_id=h.chunk_id,
+                    score=round(h.score, 5),
+                    section_id=h.metadata.get("section_id", ""),
+                    section_title=h.metadata.get("section_title", ""),
+                    page=h.metadata.get("page_start", 0),
+                    chunk_type=h.metadata.get("chunk_type", ""),
+                    text_preview=h.text[:200],
+                )
+                for h in hits[:limit]
+            ]
+
+        t0 = time.time()
+        query_vec = await self.embedder.embed_single(query)
+        dense_hits = self.vector_store.search(query_vec, top_k=self.dense_top_k)
+        timings["dense_ms"] = round((time.time() - t0) * 1000)
+
+        t0 = time.time()
+        bm25_hits = self.bm25_store.search(query, top_k=self.bm25_top_k)
+        timings["bm25_ms"] = round((time.time() - t0) * 1000)
+
+        t0 = time.time()
+        if self.fusion_method == "weighted":
+            fused = weighted_merge(dense_hits, bm25_hits)
+        else:
+            fused = reciprocal_rank_fusion([dense_hits, bm25_hits])
+        timings["fusion_ms"] = round((time.time() - t0) * 1000)
+
+        t0 = time.time()
+        candidates = fused[: self.rerank_top_k]
+        if self.reranker is not None and candidates:
+            reranked = self.reranker.rerank(query, candidates, top_k=self.final_top_k)
+        else:
+            reranked = candidates[: self.final_top_k]
+        timings["rerank_ms"] = round((time.time() - t0) * 1000)
+
+        t0 = time.time()
+        if self.expand_context and reranked:
+            final = self._expand_siblings(reranked)
+        else:
+            final = reranked
+        timings["expand_ms"] = round((time.time() - t0) * 1000)
+
+        from .qa import _build_context_block
+        context_text = _build_context_block(final)
+
+        trace = RetrievalTrace(
+            query=query,
+            dense_hits=_to_info(dense_hits),
+            bm25_hits=_to_info(bm25_hits),
+            fused_hits=_to_info(fused),
+            reranked_hits=_to_info(reranked),
+            final_hits=_to_info(final),
+            context_text=context_text[:3000],
+            timing_ms=timings,
+        )
+        return final, trace
+
     @staticmethod
     def _section_parts(sid: str) -> tuple:
         parts = []
@@ -169,15 +235,16 @@ class HybridRetriever:
         return tuple(parts)
 
     def _expand_siblings(self, hits: List[DocHit]) -> List[DocHit]:
-        """Expand reranked hits with child/sibling chunks.
+        """Expand reranked hits with child/sibling chunks and nearby tables.
 
-        Only expands using the hit's own section_id (to find children) and
-        parent_section_id when deep enough (depth >= 2) to avoid pulling in
-        entire top-level sections.
+        1. Section-based: pull in children/siblings sharing section_id or
+           parent_section_id (depth >= 2 to avoid whole top-level sections).
+        2. Page-proximity: pull in table chunks within +/- 1 page of any
+           reranked hit so relevant tables are not missed.
 
-        After expansion, keeps ALL original reranked hits plus fills remaining
-        slots (up to max_context_chunks) with the closest siblings, sorted by
-        document order.
+        Keeps ALL original reranked hits plus fills remaining slots
+        (up to max_context_chunks) with the closest siblings/tables,
+        sorted by document order.
         """
         original_ids = {h.chunk_id for h in hits}
         seen_ids: set = set(original_ids)
@@ -186,6 +253,8 @@ class HybridRetriever:
         sections_checked: set = set()
         for hit in hits:
             meta = hit.metadata
+            if meta.get("chunk_type", "").startswith("table"):
+                continue
             parent = meta.get("parent_section_id", "")
             sid = meta.get("section_id", "")
             doc_id = meta.get("doc_id", "")
@@ -205,7 +274,43 @@ class HybridRetriever:
                         siblings_pool.append(sib)
                         seen_ids.add(sib.chunk_id)
 
-        siblings_pool.sort(key=lambda h: self._section_parts(h.metadata.get("section_id", "")))
+        pages_checked: set = set()
+        hit_section_prefixes: set = set()
+        for h in hits:
+            sid = h.metadata.get("section_id", "")
+            if sid:
+                parts = sid.split(".")
+                hit_section_prefixes.add(parts[0])
+                if len(parts) >= 2:
+                    hit_section_prefixes.add(".".join(parts[:2]))
+        for hit in hits:
+            meta = hit.metadata
+            page = meta.get("page_start", 0)
+            doc_id = meta.get("doc_id", "")
+            if page and page not in pages_checked:
+                pages_checked.add(page)
+                for tbl_hit in self.bm25_store.get_nearby_tables(page, doc_id=doc_id):
+                    if tbl_hit.chunk_id in seen_ids:
+                        continue
+                    tbl_sid = tbl_hit.metadata.get("section_id", "")
+                    if tbl_sid:
+                        tbl_parts = tbl_sid.split(".")
+                        tbl_prefix = ".".join(tbl_parts[:2]) if len(tbl_parts) >= 2 else tbl_parts[0]
+                        if tbl_prefix not in hit_section_prefixes:
+                            continue
+                    tbl_hit.score = -0.02
+                    siblings_pool.append(tbl_hit)
+                    seen_ids.add(tbl_hit.chunk_id)
+
+        hit_pages = {h.metadata.get("page_start", 0) for h in hits}
+
+        def _sibling_sort_key(h: DocHit) -> tuple:
+            pg = h.metadata.get("page_start", 0)
+            page_dist = min((abs(pg - hp) for hp in hit_pages), default=999)
+            is_table = 0 if h.metadata.get("chunk_type", "").startswith("table") else 1
+            return (page_dist, is_table, self._section_parts(h.metadata.get("section_id", "")))
+
+        siblings_pool.sort(key=_sibling_sort_key)
 
         remaining_slots = max(0, self.max_context_chunks - len(hits))
         selected_siblings = siblings_pool[:remaining_slots]
@@ -213,8 +318,9 @@ class HybridRetriever:
         combined = list(hits) + selected_siblings
         combined.sort(key=lambda h: self._section_parts(h.metadata.get("section_id", "")))
 
+        n_tables = sum(1 for s in selected_siblings if s.metadata.get("chunk_type", "").startswith("table"))
         logger.debug(
-            "Context expansion: %d original + %d siblings -> %d total",
-            len(hits), len(selected_siblings), len(combined),
+            "Context expansion: %d original + %d siblings (%d tables) -> %d total",
+            len(hits), len(selected_siblings), n_tables, len(combined),
         )
         return combined

@@ -14,7 +14,7 @@ from config import get_settings
 from rag.bm25_store import BM25Store
 from rag.embedder import create_embedder
 from rag.ingest import IngestionPipeline
-from rag.models import DocHit, QAResponse
+from rag.models import DocHit, QAResponse, RetrievalTrace
 from rag.qa import QAEngine
 from rag.reranker import get_reranker
 from rag.retriever import HybridRetriever
@@ -110,6 +110,13 @@ class RAGService:
         """Full pipeline: retrieve + grounded QA."""
         hits, debug = await self._retriever.retrieve(question)
         return await self._qa.answer(question, hits, debug)
+
+    async def query_trace(self, question: str) -> tuple[QAResponse, RetrievalTrace]:
+        """Full pipeline with detailed retrieval trace for the debug UI."""
+        hits, trace = await self._retriever.retrieve_with_trace(question)
+        debug = None
+        qa_result = await self._qa.answer(question, hits, debug)
+        return qa_result, trace
 
     # ── Status ─────────────────────────────────────────────────────
 

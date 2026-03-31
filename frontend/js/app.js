@@ -127,6 +127,10 @@ const App = {
             item.addEventListener('click', () => {
                 const view = item.dataset.view;
                 UI.switchView(view);
+                if (view === 'chunks' && !this._chunksLoaded) {
+                    this._chunksLoaded = true;
+                    this.loadChunks(1);
+                }
             });
         });
         
@@ -372,6 +376,52 @@ const App = {
                 if (deleteBtn) {
                     const filename = deleteBtn.dataset.name;
                     if (filename) this.deletePolicyDocument(filename);
+                }
+            });
+        }
+
+        // ---- Chunks Viewer ----
+        const refreshChunksBtn = document.getElementById('refreshChunks');
+        if (refreshChunksBtn) {
+            refreshChunksBtn.addEventListener('click', () => this.loadChunks(1));
+        }
+
+        document.querySelectorAll('[data-chunk-filter]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('[data-chunk-filter]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this._chunksFilter = btn.dataset.chunkFilter === 'all' ? null : btn.dataset.chunkFilter;
+                this.loadChunks(1);
+            });
+        });
+
+        const chunksSearchInput = document.getElementById('chunksSearchInput');
+        if (chunksSearchInput) {
+            let debounce = null;
+            chunksSearchInput.addEventListener('input', () => {
+                clearTimeout(debounce);
+                debounce = setTimeout(() => {
+                    this._chunksSearch = chunksSearchInput.value.trim() || null;
+                    this.loadChunks(1);
+                }, 400);
+            });
+        }
+
+        const chunksPrev = document.getElementById('chunksPrev');
+        const chunksNext = document.getElementById('chunksNext');
+        if (chunksPrev) chunksPrev.addEventListener('click', () => this.loadChunks(this._chunksPage - 1));
+        if (chunksNext) chunksNext.addEventListener('click', () => this.loadChunks(this._chunksPage + 1));
+
+        const chunksList = document.getElementById('chunksList');
+        if (chunksList) {
+            chunksList.addEventListener('click', (e) => {
+                const expandBtn = e.target.closest('.chunk-expand-btn');
+                if (expandBtn) {
+                    const body = expandBtn.previousElementSibling;
+                    if (body) {
+                        body.classList.toggle('expanded');
+                        expandBtn.textContent = body.classList.contains('expanded') ? 'Collapse' : 'Expand';
+                    }
                 }
             });
         }
@@ -894,6 +944,65 @@ const App = {
         }
     },
     
+    // ============ Chunks Viewer ============
+
+    _chunksPage: 1,
+    _chunksFilter: null,
+    _chunksSearch: null,
+
+    async loadChunks(page = 1) {
+        if (page < 1) return;
+        this._chunksPage = page;
+
+        try {
+            const data = await API.getPolicyChunks(page, 50, this._chunksFilter, this._chunksSearch);
+            const totalPages = Math.ceil(data.total / data.page_size) || 1;
+
+            document.getElementById('chunksShowing').textContent = data.chunks.length;
+            document.getElementById('chunksTotal').textContent = data.total;
+            document.getElementById('chunksPageInfo').textContent = `Page ${data.page} / ${totalPages}`;
+            document.getElementById('chunksPrev').disabled = data.page <= 1;
+            document.getElementById('chunksNext').disabled = data.page >= totalPages;
+
+            const list = document.getElementById('chunksList');
+            if (!data.chunks.length) {
+                list.innerHTML = `<div class="chunks-empty">
+                    <svg viewBox="0 0 24 24" width="64" height="64"><path fill="currentColor" d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+                    <p>No chunks found</p>
+                </div>`;
+                return;
+            }
+
+            list.innerHTML = data.chunks.map(c => {
+                const shortId = c.id ? c.id.substring(0, 8) : '';
+                const badge = c.chunk_type || 'text_clause';
+                const section = c.section_id ? `§${c.section_id}` : '';
+                const title = c.section_title || c.table_title || '';
+                const pageLabel = c.page_start ? `p.${c.page_start}` : '';
+                const needsExpand = c.text.length > 400;
+                const displayText = UI.escapeHtml(c.text);
+
+                return `<div class="chunk-card">
+                    <div class="chunk-card-header">
+                        <div class="chunk-meta">
+                            <span class="chunk-badge ${badge}">${badge.replace('_', ' ')}</span>
+                            ${section ? `<span class="chunk-section">${UI.escapeHtml(section)}</span>` : ''}
+                            ${title ? `<span class="chunk-section">${UI.escapeHtml(title)}</span>` : ''}
+                        </div>
+                        <span class="chunk-page">${pageLabel}</span>
+                        <span class="chunk-id-text" title="${c.id}">${shortId}</span>
+                    </div>
+                    <div class="chunk-card-body${needsExpand ? '' : ' expanded'}">${displayText}</div>
+                    ${needsExpand ? '<button class="chunk-expand-btn">Expand</button>' : ''}
+                </div>`;
+            }).join('');
+
+        } catch (error) {
+            console.error('Failed to load chunks:', error);
+            document.getElementById('chunksList').innerHTML = `<div class="chunks-empty"><p>Failed to load chunks</p></div>`;
+        }
+    },
+
     // ============ Calendar ============
     
     async refreshCalendar() {

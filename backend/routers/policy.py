@@ -21,6 +21,7 @@ class IngestResponse(BaseModel):
     documents: int
     chunks: int
     text_chunks: Optional[int] = None
+    table_chunks: Optional[int] = None
     table_rows: Optional[int] = None
     source_files: Optional[List[str]] = None
     ingested_at: Optional[str] = None
@@ -65,6 +66,25 @@ class RetrievalDebugResponse(BaseModel):
     reranked_top: List[str] = []
 
 
+class ChunkItem(BaseModel):
+    id: str = ""
+    text: str = ""
+    doc_name: str = ""
+    section_id: str = ""
+    section_title: str = ""
+    page_start: int = 0
+    page_end: int = 0
+    chunk_type: str = ""
+    table_title: str = ""
+
+
+class ChunksResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    chunks: List[ChunkItem]
+
+
 class QueryRequest(BaseModel):
     question: str
     language: Optional[str] = "ar"
@@ -75,6 +95,30 @@ class QueryResponse(BaseModel):
     citations: List[CitationItem] = []
     confidence: str = "low"
     retrieval_debug: Optional[RetrievalDebugResponse] = None
+
+
+class ScoredHitItem(BaseModel):
+    chunk_id: str = ""
+    score: float = 0.0
+    section_id: str = ""
+    section_title: str = ""
+    page: int = 0
+    chunk_type: str = ""
+    text_preview: str = ""
+
+
+class QueryTraceResponse(BaseModel):
+    answer_ar: str = ""
+    citations: List[CitationItem] = []
+    confidence: str = "low"
+    query: str = ""
+    dense_hits: List[ScoredHitItem] = []
+    bm25_hits: List[ScoredHitItem] = []
+    fused_hits: List[ScoredHitItem] = []
+    reranked_hits: List[ScoredHitItem] = []
+    final_hits: List[ScoredHitItem] = []
+    context_text: str = ""
+    timing_ms: dict = {}
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -166,6 +210,52 @@ async def get_policy_status():
         raise HTTPException(status_code=500, detail=f"Status check failed: {str(e)}")
 
 
+@router.get("/chunks", response_model=ChunksResponse)
+async def list_chunks(
+    page: int = 1,
+    page_size: int = 50,
+    chunk_type: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    """Return paginated chunk data from the BM25 index for inspection."""
+    try:
+        rag = get_rag_service()
+        store = rag.bm25_store
+        total_all = store.count()
+
+        indices = list(range(total_all))
+
+        if chunk_type:
+            indices = [i for i in indices if store._doc_meta[i].get("chunk_type") == chunk_type]
+        if search:
+            q = search.lower()
+            indices = [i for i in indices if q in store._doc_texts[i].lower()]
+
+        total = len(indices)
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_indices = indices[start:end]
+
+        items = []
+        for i in page_indices:
+            m = store._doc_meta[i]
+            items.append(ChunkItem(
+                id=store._doc_ids[i],
+                text=store._doc_texts[i],
+                doc_name=m.get("doc_name", ""),
+                section_id=m.get("section_id", ""),
+                section_title=m.get("section_title", ""),
+                page_start=m.get("page_start", 0),
+                page_end=m.get("page_end", 0),
+                chunk_type=m.get("chunk_type", ""),
+                table_title=m.get("table_title", ""),
+            ))
+
+        return ChunksResponse(total=total, page=page, page_size=page_size, chunks=items)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list chunks: {str(e)}")
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query_policy(request: QueryRequest):
     """Grounded QA: retrieve relevant policy chunks and return an answer with citations."""
@@ -201,3 +291,38 @@ async def query_policy(request: QueryRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
+@router.post("/query-trace", response_model=QueryTraceResponse)
+async def query_policy_trace(request: QueryRequest):
+    """Grounded QA with full retrieval trace — shows scores at every pipeline stage."""
+    if not request.question or not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question is required")
+
+    try:
+        rag = get_rag_service()
+        qa_result, trace = await rag.query_trace(request.question)
+
+        return QueryTraceResponse(
+            answer_ar=qa_result.answer_ar,
+            citations=[
+                CitationItem(
+                    section_id=c.section_id,
+                    section_title=c.section_title,
+                    page=c.page,
+                    quote=c.quote,
+                )
+                for c in qa_result.citations
+            ],
+            confidence=qa_result.confidence,
+            query=trace.query,
+            dense_hits=[ScoredHitItem(**h.model_dump()) for h in trace.dense_hits],
+            bm25_hits=[ScoredHitItem(**h.model_dump()) for h in trace.bm25_hits],
+            fused_hits=[ScoredHitItem(**h.model_dump()) for h in trace.fused_hits],
+            reranked_hits=[ScoredHitItem(**h.model_dump()) for h in trace.reranked_hits],
+            final_hits=[ScoredHitItem(**h.model_dump()) for h in trace.final_hits],
+            context_text=trace.context_text,
+            timing_ms=trace.timing_ms,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Query trace failed: {str(e)}")

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class ChunkRecord(BaseModel):
-    """A single chunk (text clause or table row) with full metadata."""
+    """A single chunk (text clause, table, or table row) with full metadata."""
 
     id: str = ""
     text: str
@@ -58,11 +58,34 @@ class Citation(BaseModel):
     quote: str = ""
 
 
+class ScoredHitInfo(BaseModel):
+    """Compact hit representation for the RAG trace UI."""
+    chunk_id: str
+    score: float = 0.0
+    section_id: str = ""
+    section_title: str = ""
+    page: int = 0
+    chunk_type: str = ""
+    text_preview: str = ""
+
+
 class RetrievalDebug(BaseModel):
     dense_top: List[str] = Field(default_factory=list)
     bm25_top: List[str] = Field(default_factory=list)
     fused_top: List[str] = Field(default_factory=list)
     reranked_top: List[str] = Field(default_factory=list)
+
+
+class RetrievalTrace(BaseModel):
+    """Full scored trace of every retrieval stage for the debug UI."""
+    query: str = ""
+    dense_hits: List[ScoredHitInfo] = Field(default_factory=list)
+    bm25_hits: List[ScoredHitInfo] = Field(default_factory=list)
+    fused_hits: List[ScoredHitInfo] = Field(default_factory=list)
+    reranked_hits: List[ScoredHitInfo] = Field(default_factory=list)
+    final_hits: List[ScoredHitInfo] = Field(default_factory=list)
+    context_text: str = ""
+    timing_ms: dict = Field(default_factory=dict)
 
 
 class QAResponse(BaseModel):

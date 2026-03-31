@@ -44,8 +44,19 @@ def normalize_arabic(text: str) -> str:
     return text
 
 
+_AL_PREFIXES = re.compile(r"^(وبال|فبال|وكال|كال|بال|وال|فال|ولل|لل|ال)")
+
+
+def _strip_article(token: str) -> str:
+    """Remove Arabic definite article and its common prefix combinations."""
+    stripped = _AL_PREFIXES.sub("", token)
+    if len(stripped) >= 2:
+        return stripped
+    return token
+
+
 def tokenize_arabic(text: str) -> List[str]:
-    """Normalize then split on whitespace + punctuation for BM25."""
+    """Normalize, strip definite article patterns, then split for BM25."""
     normed = normalize_arabic(text)
     tokens = re.split(r"[^\w\u0600-\u06FF]+", normed)
-    return [t for t in tokens if t]
+    return [_strip_article(t) for t in tokens if t]

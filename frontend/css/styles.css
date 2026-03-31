@@ -2258,3 +2258,217 @@ body {
     border-top: 1px solid rgba(var(--primary-rgb, 79, 0, 140), 0.1);
     font-family: inherit;
 }
+
+/* ── Chunks Viewer ─────────────────────────────────────── */
+
+.chunks-toolbar {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.chunks-search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 8px;
+    padding: 6px 12px;
+    flex: 1;
+    min-width: 180px;
+}
+
+.chunks-search-box input {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 0.9rem;
+    width: 100%;
+    color: inherit;
+}
+
+.chunks-search-box svg {
+    color: var(--text-secondary, #888);
+    flex-shrink: 0;
+}
+
+.chunks-filters {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.chunks-stats {
+    padding: 0 16px 8px;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #888);
+}
+
+.chunks-list {
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    max-height: calc(100vh - 280px);
+}
+
+.chunk-card {
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.15s;
+}
+
+.chunk-card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.chunk-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: rgba(var(--primary-rgb, 79, 0, 140), 0.04);
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.chunk-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.chunk-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.chunk-badge.text_clause {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.chunk-badge.table {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.chunk-badge.table_row {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.chunk-section {
+    font-size: 0.78rem;
+    color: var(--text-secondary, #666);
+    font-weight: 500;
+}
+
+.chunk-page {
+    font-size: 0.72rem;
+    color: var(--text-secondary, #999);
+    margin-left: auto;
+}
+
+.chunk-card-body {
+    padding: 12px 14px;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: var(--text-primary, #333);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    direction: auto;
+}
+
+.chunk-card-body.expanded {
+    max-height: none;
+}
+
+.chunk-expand-btn {
+    display: block;
+    width: 100%;
+    padding: 6px;
+    border: none;
+    background: rgba(var(--primary-rgb, 79, 0, 140), 0.04);
+    color: var(--primary-color, #4F008C);
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-top: 1px solid var(--border-color, #e0e0e0);
+}
+
+.chunk-expand-btn:hover {
+    background: rgba(var(--primary-rgb, 79, 0, 140), 0.08);
+}
+
+.chunks-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+}
+
+.pagination-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 14px;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 8px;
+    background: var(--bg-card, #fff);
+    color: var(--text-primary, #333);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: rgba(var(--primary-rgb, 79, 0, 140), 0.06);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.page-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary, #666);
+}
+
+.chunks-empty {
+    text-align: center;
+    padding: 40px 16px;
+    color: var(--text-secondary, #888);
+}
+
+.chunks-empty svg {
+    margin-bottom: 12px;
+    opacity: 0.4;
+}
+
+.chunk-id-text {
+    font-size: 0.65rem;
+    color: var(--text-secondary, #aaa);
+    font-family: monospace;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

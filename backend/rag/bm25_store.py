@@ -131,5 +131,24 @@ class BM25Store:
                 ))
         return hits
 
+    def get_nearby_tables(self, page: int, doc_id: str = "", page_margin: int = 1) -> List[DocHit]:
+        """Return table-type chunks within +/- page_margin of the given page."""
+        hits: List[DocHit] = []
+        for i, meta in enumerate(self._doc_meta):
+            if meta.get("chunk_type") not in ("table", "table_row"):
+                continue
+            pg = meta.get("page_start", 0)
+            if abs(pg - page) > page_margin:
+                continue
+            if doc_id and meta.get("doc_id", "") != doc_id:
+                continue
+            hits.append(DocHit(
+                chunk_id=self._doc_ids[i],
+                text=self._doc_texts[i],
+                score=0.0,
+                metadata=meta,
+            ))
+        return hits
+
     def count(self) -> int:
         return len(self._doc_ids)
