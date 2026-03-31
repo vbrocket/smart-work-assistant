@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# deploy-vastai.sh — Start all services on a vast.ai multi-GPU instance.
+# deploy-vastai.sh â€” Start all services on a vast.ai multi-GPU instance.
 #
 # GPU layout (TP=2):
-#   GPU 0+1 → vLLM LLM     (Qwen3-32B, TP=2)     port 8001  (70% each GPU)
-#   GPU 1   → vLLM Embedding (BGE-M3)             port 8002  (15%)
+#   GPU 0+1 â†’ vLLM LLM     (Qwen3-32B, TP=2)     port 8001  (70% each GPU)
+#   GPU 1   â†’ vLLM Embedding (BGE-M3)             port 8002  (15%)
 #              vLLM Reranker (bge-reranker-v2-m3)  port 8003  (15%)
 #              Whisper + TTS (in-process in FastAPI app)
 #
@@ -15,12 +15,12 @@
 # Override models/GPUs via environment:
 #   VLLM_LLM_MODEL="Qwen/Qwen3-235B-A22B" VLLM_TP=2 ./deploy-vastai.sh
 #
-set -euo pipefail
+set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ── Configurable via environment ──────────────────────────────────────────
+# â”€â”€ Configurable via environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 LLM_MODEL="${VLLM_LLM_MODEL:-Qwen/Qwen3-32B}"
 LLM_TP="${VLLM_TP:-2}"
 LLM_PORT="${VLLM_LLM_PORT:-8001}"
@@ -39,7 +39,7 @@ APP_PORT="${APP_PORT:-18000}"
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
 
-# ── Helpers ───────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 log()  { echo "[$(date '+%H:%M:%S')] $*"; }
 logr() { echo -e "[$(date '+%H:%M:%S')] \033[0;31m$*\033[0m"; }
 logg() { echo -e "[$(date '+%H:%M:%S')] \033[0;32m$*\033[0m"; }
@@ -99,9 +99,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 0. STOP VAST.AI BUILT-IN VLLM + CHECK EXISTING SERVERS
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 if command -v supervisorctl &>/dev/null; then
     log "Stopping vast.ai built-in vLLM service..."
@@ -134,19 +134,19 @@ is_vllm_serving() {
 SKIP_LLM=0 SKIP_EMBED=0 SKIP_RERANK=0
 
 if is_vllm_serving "$LLM_PORT" "$LLM_MODEL"; then
-    logg "LLM already running on port $LLM_PORT ($LLM_MODEL) — skipping"
+    logg "LLM already running on port $LLM_PORT ($LLM_MODEL) â€” skipping"
     SKIP_LLM=1
     PID_LLM=$(lsof -ti ":$LLM_PORT" 2>/dev/null | head -1 || true)
 fi
 
 if is_vllm_serving "$EMBED_PORT" "$EMBED_MODEL"; then
-    logg "Embedding already running on port $EMBED_PORT ($EMBED_MODEL) — skipping"
+    logg "Embedding already running on port $EMBED_PORT ($EMBED_MODEL) â€” skipping"
     SKIP_EMBED=1
     PID_EMBED=$(lsof -ti ":$EMBED_PORT" 2>/dev/null | head -1 || true)
 fi
 
 if is_vllm_serving "$RERANK_PORT" "$RERANK_MODEL"; then
-    logg "Reranker already running on port $RERANK_PORT ($RERANK_MODEL) — skipping"
+    logg "Reranker already running on port $RERANK_PORT ($RERANK_MODEL) â€” skipping"
     SKIP_RERANK=1
     PID_RERANK=$(lsof -ti ":$RERANK_PORT" 2>/dev/null | head -1 || true)
 fi
@@ -157,9 +157,9 @@ kill_port "$APP_PORT"
 log "GPU memory check:"
 nvidia-smi --query-gpu=index,memory.used,memory.free --format=csv,noheader
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 1. INSTALL DEPS (first run only)
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 if [ ! -f "$SCRIPT_DIR/.deps_installed" ]; then
     log "Installing Python dependencies (first run)..."
@@ -168,21 +168,21 @@ if [ ! -f "$SCRIPT_DIR/.deps_installed" ]; then
     log "Dependencies installed."
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 2. COPY .env IF MISSING
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 if [ ! -f "$SCRIPT_DIR/.env" ] && [ -f "$SCRIPT_DIR/.env.vastai" ]; then
-    log "No .env found — copying .env.vastai"
+    log "No .env found â€” copying .env.vastai"
     cp "$SCRIPT_DIR/.env.vastai" "$SCRIPT_DIR/.env"
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
-# 3. START VLLM — LLM (GPU 0)
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 3. START VLLM â€” LLM (GPU 0)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 if [ "$SKIP_LLM" -eq 0 ]; then
-    log "━━━ Starting LLM: $LLM_MODEL on GPU $LLM_GPU, port $LLM_PORT ━━━"
+    log "â”â”â” Starting LLM: $LLM_MODEL on GPU $LLM_GPU, port $LLM_PORT â”â”â”"
     kill_port "$LLM_PORT"
     CUDA_VISIBLE_DEVICES="$LLM_GPU" vllm serve "$LLM_MODEL" \
         --port "$LLM_PORT" \
@@ -191,18 +191,19 @@ if [ "$SKIP_LLM" -eq 0 ]; then
         --max-model-len 32768 \
         --dtype bfloat16 \
         --disable-log-requests \
+        --download-dir /workspace/models \
         > "$LOG_DIR/vllm_llm.log" 2>&1 &
     PID_LLM=$!
     _OWNED_PIDS="$_OWNED_PIDS $PID_LLM"
     log "LLM server started (PID $PID_LLM, log: $LOG_DIR/vllm_llm.log)"
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
-# 4. START VLLM — EMBEDDING (GPU 1)
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 4. START VLLM â€” EMBEDDING (GPU 1)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 if [ "$SKIP_EMBED" -eq 0 ]; then
-    log "━━━ Starting Embedding: $EMBED_MODEL on GPU $EMBED_GPU, port $EMBED_PORT ━━━"
+    log "â”â”â” Starting Embedding: $EMBED_MODEL on GPU $EMBED_GPU, port $EMBED_PORT â”â”â”"
     kill_port "$EMBED_PORT"
     CUDA_VISIBLE_DEVICES="$EMBED_GPU" vllm serve "$EMBED_MODEL" \
         --convert embed \
@@ -212,18 +213,19 @@ if [ "$SKIP_EMBED" -eq 0 ]; then
         --max-model-len 8192 \
         --dtype float16 \
         --disable-log-requests \
+        --download-dir /workspace/models \
         > "$LOG_DIR/vllm_embed.log" 2>&1 &
     PID_EMBED=$!
     _OWNED_PIDS="$_OWNED_PIDS $PID_EMBED"
     log "Embedding server started (PID $PID_EMBED, log: $LOG_DIR/vllm_embed.log)"
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
-# 5. START VLLM — RERANKER (GPU 1)
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 5. START VLLM â€” RERANKER (GPU 1)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 if [ "$SKIP_RERANK" -eq 0 ]; then
-    log "━━━ Starting Reranker: $RERANK_MODEL on GPU $RERANK_GPU, port $RERANK_PORT ━━━"
+    log "â”â”â” Starting Reranker: $RERANK_MODEL on GPU $RERANK_GPU, port $RERANK_PORT â”â”â”"
     kill_port "$RERANK_PORT"
     CUDA_VISIBLE_DEVICES="$RERANK_GPU" vllm serve "$RERANK_MODEL" \
         --convert classify \
@@ -233,15 +235,16 @@ if [ "$SKIP_RERANK" -eq 0 ]; then
         --max-model-len 512 \
         --dtype float16 \
         --disable-log-requests \
+        --download-dir /workspace/models \
         > "$LOG_DIR/vllm_rerank.log" 2>&1 &
     PID_RERANK=$!
     _OWNED_PIDS="$_OWNED_PIDS $PID_RERANK"
     log "Reranker server started (PID $PID_RERANK, log: $LOG_DIR/vllm_rerank.log)"
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 6. WAIT FOR ALL VLLM SERVERS
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 LLM_OK=$SKIP_LLM EMBED_OK=$SKIP_EMBED RERANK_OK=$SKIP_RERANK
 
@@ -258,7 +261,7 @@ if [ "$NEED_WAIT" -eq 1 ]; then
 fi
 
 if [ "$SKIP_LLM" -eq 0 ]; then
-    if wait_for_port "$LLM_PORT" "vLLM LLM" 600 "$PID_LLM"; then
+    if wait_for_port "$LLM_PORT" "vLLM LLM" 900 "$PID_LLM"; then
         verify_gpu "$LLM_GPU" "LLM"
         LLM_OK=1
     else
@@ -288,27 +291,27 @@ if [ "$SKIP_RERANK" -eq 0 ]; then
 fi
 
 if [ "$LLM_OK" -eq 0 ]; then
-    logr "CRITICAL: LLM server is not running — the app will not function."
+    logr "CRITICAL: LLM server is not running â€” the app will not function."
     logr "Fix the issue and re-run this script."
     exit 1
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 7. VERIFY GPU ASSIGNMENT
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 log ""
-log "━━━ GPU Memory Usage ━━━"
+log "â”â”â” GPU Memory Usage â”â”â”"
 nvidia-smi --query-gpu=index,name,memory.used,memory.free --format=csv,noheader | while read -r line; do
     log "  $line"
 done
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 8. START FASTAPI APP
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 log ""
-log "━━━ Starting FastAPI app on port $APP_PORT ━━━"
+log "â”â”â” Starting FastAPI app on port $APP_PORT â”â”â”"
 python3 -m uvicorn main:app \
     --host 0.0.0.0 \
     --port "$APP_PORT" \
@@ -319,25 +322,25 @@ PID_APP=$!
 _OWNED_PIDS="$_OWNED_PIDS $PID_APP"
 log "App started (PID $PID_APP, log: $LOG_DIR/app.log)"
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 9. SUMMARY
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 sleep 2
 
 _status_label() { [ "$1" -eq 1 ] && echo "kept" || echo "started"; }
 
 log ""
-log "┌─────────────────────────────────────────────────────────────────────┐"
-log "│  All services running!                                              │"
-log "├───────────────┬──────────────────────────────┬───────┬───────┬──────┤"
-log "│  Service      │  Model                       │  Port │  GPU  │ Note │"
-log "├───────────────┼──────────────────────────────┼───────┼───────┼──────┤"
-printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "LLM" "$LLM_MODEL" "$LLM_PORT" "$LLM_GPU" "$(_status_label $SKIP_LLM)"
-printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "Embedding" "$EMBED_MODEL" "$EMBED_PORT" "$EMBED_GPU" "$(_status_label $SKIP_EMBED)"
-printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "Reranker" "$RERANK_MODEL" "$RERANK_PORT" "$RERANK_GPU" "$(_status_label $SKIP_RERANK)"
-printf "[$(date '+%H:%M:%S')] │  %-13s │  %-28s │  %-5s│  %-5s│ %-5s│\n" "App" "FastAPI" "$APP_PORT" "—" "started"
-log "└───────────────┴──────────────────────────────┴───────┴───────┴──────┘"
+log "â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”"
+log "â”‚  All services running!                                              â”‚"
+log "â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”¤"
+log "â”‚  Service      â”‚  Model                       â”‚  Port â”‚  GPU  â”‚ Note â”‚"
+log "â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”¤"
+printf "[$(date '+%H:%M:%S')] â”‚  %-13s â”‚  %-28s â”‚  %-5sâ”‚  %-5sâ”‚ %-5sâ”‚\n" "LLM" "$LLM_MODEL" "$LLM_PORT" "$LLM_GPU" "$(_status_label $SKIP_LLM)"
+printf "[$(date '+%H:%M:%S')] â”‚  %-13s â”‚  %-28s â”‚  %-5sâ”‚  %-5sâ”‚ %-5sâ”‚\n" "Embedding" "$EMBED_MODEL" "$EMBED_PORT" "$EMBED_GPU" "$(_status_label $SKIP_EMBED)"
+printf "[$(date '+%H:%M:%S')] â”‚  %-13s â”‚  %-28s â”‚  %-5sâ”‚  %-5sâ”‚ %-5sâ”‚\n" "Reranker" "$RERANK_MODEL" "$RERANK_PORT" "$RERANK_GPU" "$(_status_label $SKIP_RERANK)"
+printf "[$(date '+%H:%M:%S')] â”‚  %-13s â”‚  %-28s â”‚  %-5sâ”‚  %-5sâ”‚ %-5sâ”‚\n" "App" "FastAPI" "$APP_PORT" "â€”" "started"
+log "â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”˜"
 log ""
 log "PIDs: LLM=$PID_LLM  Embed=$PID_EMBED  Reranker=$PID_RERANK  App=$PID_APP"
 log "Logs: $LOG_DIR/"

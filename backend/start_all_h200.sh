@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# start_all_h200.sh — Quick-start all 3 vLLM servers on a single H200 NVL GPU.
+# start_all_h200.sh â€” Quick-start all 3 vLLM servers on a single H200 NVL GPU.
 # Use this to manually start servers outside of deploy-h200.sh.
 #
 set -euo pipefail

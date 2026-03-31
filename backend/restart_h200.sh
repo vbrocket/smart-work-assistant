@@ -1,5 +1,5 @@
 #!/bin/bash
-# restart_h200.sh — Clean restart all services on H200 NVL
+# restart_h200.sh â€” Clean restart all services on H200 NVL
 # Starts router AFTER other models to avoid memory contention
 set -uo pipefail
 cd /workspace/pwa-idea/backend

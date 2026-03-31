@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# setup-h200.sh — Validate environment, stop conflicting services,
+# setup-h200.sh â€” Validate environment, stop conflicting services,
 # install dependencies, download models, and run smoke tests on vast.ai.
 #
 # Designed for: 1x NVIDIA H200 NVL (~141 GB VRAM)
-# All models share GPU 0 — no tensor parallelism needed.
+# All models share GPU 0 â€” no tensor parallelism needed.
 #
 # GPU layout (single GPU):
-#   GPU 0 → LLM       (Qwen3-32B)             port 8001  (70%)
+#   GPU 0 â†’ LLM       (Qwen3-32B)             port 8001  (70%)
 #            Router    (Qwen2.5-3B-Instruct)   port 8004  (5%)
 #            Embedding (BGE-M3)                port 8002  (10%)
 #            Reranker  (bge-reranker-v2-m3)    port 8003  (5%)
@@ -19,9 +19,9 @@
 #
 set -euo pipefail
 
-# ─────────────────────────────────────────────────────────────────────────
-# Configuration — single GPU, all on GPU 0
-# ─────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Configuration â€” single GPU, all on GPU 0
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 LLM_MODEL="${VLLM_LLM_MODEL:-Qwen/Qwen3-32B}"
 LLM_PORT="${VLLM_LLM_PORT:-8001}"
 LLM_GPU="${VLLM_LLM_GPU:-0}"
@@ -64,7 +64,7 @@ pass()   { PASS=$((PASS+1)); echo -e "  ${GREEN}[PASS]${NC} $*"; }
 warn()   { WARN=$((WARN+1)); echo -e "  ${YELLOW}[WARN]${NC} $*"; }
 fail()   { FAIL=$((FAIL+1)); echo -e "  ${RED}[FAIL]${NC} $*"; }
 info()   { echo -e "  ${CYAN}[INFO]${NC} $*"; }
-header() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; echo -e "${CYAN}  $*${NC}"; echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; }
+header() { echo -e "\n${CYAN}â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”${NC}"; echo -e "${CYAN}  $*${NC}"; echo -e "${CYAN}â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”${NC}"; }
 
 detect_hf_cache() {
     if [ -d "/workspace/.hf_home/hub" ]; then
@@ -88,14 +88,14 @@ kill_port() {
     fi
 }
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PHASE 0: STOP CONFLICTING SERVICES
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 header "0/7  Stop Conflicting Services"
 
 if command -v supervisorctl &>/dev/null; then
-    info "Detected Supervisor — stopping vast.ai built-in vLLM..."
+    info "Detected Supervisor â€” stopping vast.ai built-in vLLM..."
     supervisorctl stop vllm 2>/dev/null || true
     for conf in /etc/supervisor/conf.d/*; do
         if grep -q "program:vllm" "$conf" 2>/dev/null; then
@@ -108,7 +108,7 @@ if command -v supervisorctl &>/dev/null; then
     sleep 2
     pass "Supervisor vLLM stopped and disabled"
 else
-    info "No Supervisor found — skipping"
+    info "No Supervisor found â€” skipping"
 fi
 
 GPU_PIDS=$(fuser /dev/nvidia* 2>/dev/null | tr -s ' ' '\n' | sort -u | tr '\n' ' ' || true)
@@ -135,14 +135,14 @@ else
     info "If vLLM fails to start, try rebooting the instance"
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PHASE 1: SYSTEM VALIDATION
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 header "1/7  NVIDIA Driver & CUDA"
 
 if ! command -v nvidia-smi &>/dev/null; then
-    fail "nvidia-smi not found — NVIDIA driver not installed"
+    fail "nvidia-smi not found â€” NVIDIA driver not installed"
 else
     DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits | head -1)
     pass "NVIDIA driver: $DRIVER_VER"
@@ -169,12 +169,12 @@ else
         fi
     done
     echo ""
-    info "GPU assignment plan (single GPU — all on GPU 0):"
-    info "  GPU $LLM_GPU    → LLM ($LLM_MODEL) on port $LLM_PORT"
-    info "  GPU $ROUTER_GPU → Router ($ROUTER_MODEL) on port $ROUTER_PORT"
-    info "  GPU $EMBED_GPU  → Embedding ($EMBED_MODEL) on port $EMBED_PORT"
-    info "  GPU $RERANK_GPU → Reranker ($RERANK_MODEL) on port $RERANK_PORT"
-    info "  GPU 0           → Whisper + TTS (in-process, shared)"
+    info "GPU assignment plan (single GPU â€” all on GPU 0):"
+    info "  GPU $LLM_GPU    â†’ LLM ($LLM_MODEL) on port $LLM_PORT"
+    info "  GPU $ROUTER_GPU â†’ Router ($ROUTER_MODEL) on port $ROUTER_PORT"
+    info "  GPU $EMBED_GPU  â†’ Embedding ($EMBED_MODEL) on port $EMBED_PORT"
+    info "  GPU $RERANK_GPU â†’ Reranker ($RERANK_MODEL) on port $RERANK_PORT"
+    info "  GPU 0           â†’ Whisper + TTS (in-process, shared)"
 fi
 
 if ! command -v nvcc &>/dev/null; then
@@ -191,7 +191,7 @@ else
     fi
 fi
 
-# ─────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 header "2/7  System Resources"
 
 TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
@@ -211,7 +211,7 @@ fi
 
 info "HuggingFace cache: $HF_CACHE"
 
-# ─────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 header "3/7  Python & System Tools"
 
 PY_CMD=""
@@ -244,21 +244,21 @@ fi
 
 for tool in ffmpeg curl git; do
     if ! command -v "$tool" &>/dev/null; then
-        warn "$tool not found — installing..."
+        warn "$tool not found â€” installing..."
         apt-get update -qq 2>/dev/null && apt-get install -y -qq "$tool" 2>/dev/null && pass "$tool installed" || fail "Could not install $tool"
     else
         pass "$tool found"
     fi
 done
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PHASE 2: INSTALL PYTHON PACKAGES
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 header "4/7  Python Dependencies"
 
 if [ -z "$PIP_CMD" ] || [ -z "$PY_CMD" ]; then
-    fail "Cannot install packages — pip or python missing"
+    fail "Cannot install packages â€” pip or python missing"
 else
     info "Installing app requirements..."
     $PIP_CMD install -q -r requirements.txt 2>&1 | tail -5
@@ -292,9 +292,9 @@ if errors:
     fi
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PHASE 3: DOWNLOAD NON-VLLM MODELS (Whisper only)
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 header "5/7  Model Downloads (Whisper only)"
 
@@ -319,7 +319,7 @@ except Exception as e:
     if [ $? -eq 0 ]; then
         pass "$label downloaded"
     else
-        warn "$label download failed — will retry at runtime"
+        warn "$label download failed â€” will retry at runtime"
     fi
 }
 
@@ -334,14 +334,14 @@ print('    Whisper model cached successfully')
 if [ $? -eq 0 ]; then
     pass "STT (Whisper $WHISPER_MODEL) downloaded"
 else
-    warn "STT (Whisper $WHISPER_MODEL) download failed — will retry at runtime"
+    warn "STT (Whisper $WHISPER_MODEL) download failed â€” will retry at runtime"
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
-# PHASE 4: SMOKE TEST — vLLM servers on correct GPU + port
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PHASE 4: SMOKE TEST â€” vLLM servers on correct GPU + port
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-header "6/7  Smoke Tests — Start each vLLM server, verify GPU + port"
+header "6/7  Smoke Tests â€” Start each vLLM server, verify GPU + port"
 
 info "Testing PyTorch CUDA access..."
 $PY_CMD -c "
@@ -436,7 +436,7 @@ smoke_test_vllm() {
 }
 
 echo ""
-info "━━━ LLM Smoke Test (single GPU, TP=1) ━━━"
+info "â”â”â” LLM Smoke Test (single GPU, TP=1) â”â”â”"
 if smoke_test_vllm "$LLM_MODEL" "generate" "$LLM_PORT" "$LLM_GPU" "LLM" "0.70" "32768" "bfloat16" "1"; then
     pass "LLM smoke test PASSED"
 else
@@ -447,7 +447,7 @@ fi
 sleep 5
 
 echo ""
-info "━━━ Embedding Smoke Test ━━━"
+info "â”â”â” Embedding Smoke Test â”â”â”"
 if smoke_test_vllm "$EMBED_MODEL" "embed" "$EMBED_PORT" "$EMBED_GPU" "Embedding" "0.10" "8192" "float16"; then
     pass "Embedding smoke test PASSED"
 else
@@ -458,7 +458,7 @@ fi
 sleep 3
 
 echo ""
-info "━━━ Reranker Smoke Test ━━━"
+info "â”â”â” Reranker Smoke Test â”â”â”"
 if smoke_test_vllm "$RERANK_MODEL" "score" "$RERANK_PORT" "$RERANK_GPU" "Reranker" "0.05" "512" "float16"; then
     pass "Reranker smoke test PASSED"
 else
@@ -469,7 +469,7 @@ fi
 sleep 3
 
 echo ""
-info "━━━ Router LLM Smoke Test ━━━"
+info "â”â”â” Router LLM Smoke Test â”â”â”"
 if smoke_test_vllm "$ROUTER_MODEL" "generate" "$ROUTER_PORT" "$ROUTER_GPU" "Router" "0.25" "2048" "bfloat16"; then
     pass "Router LLM smoke test PASSED"
 else
@@ -480,7 +480,7 @@ fi
 sleep 3
 
 echo ""
-info "━━━ Whisper CUDA Test ━━━"
+info "â”â”â” Whisper CUDA Test â”â”â”"
 $PY_CMD -c "
 from faster_whisper import WhisperModel
 import torch
@@ -510,9 +510,9 @@ if [ -n "$GPU_PIDS" ]; then
     sleep 3
 fi
 
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # SUMMARY
-# ═════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 header "7/7  Summary"
 
@@ -533,17 +533,17 @@ fi
 
 echo -e "  ${GREEN}All checks passed!${NC}"
 echo ""
-echo "  ┌─────────────────────────────────────────────────────────────┐"
-echo "  │  GPU Assignment — H200 NVL single GPU (verified)            │"
-echo "  ├───────┬────────────────────────────────┬───────┬────────────┤"
-echo "  │  GPU  │  Model                         │  Port │  Task      │"
-echo "  ├───────┼────────────────────────────────┼───────┼────────────┤"
-printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$LLM_GPU" "$LLM_MODEL" "$LLM_PORT" "generate"
-printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$ROUTER_GPU" "$ROUTER_MODEL" "$ROUTER_PORT" "generate"
-printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$EMBED_GPU" "$EMBED_MODEL" "$EMBED_PORT" "embed"
-printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "$RERANK_GPU" "$RERANK_MODEL" "$RERANK_PORT" "score"
-printf "  │  %-4s │  %-30s│  %-4s │  %-9s │\n" "0" "Whisper ($WHISPER_MODEL)" "—" "in-process"
-echo "  └───────┴────────────────────────────────┴───────┴────────────┘"
+echo "  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”"
+echo "  â”‚  GPU Assignment â€” H200 NVL single GPU (verified)            â”‚"
+echo "  â”œâ”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤"
+echo "  â”‚  GPU  â”‚  Model                         â”‚  Port â”‚  Task      â”‚"
+echo "  â”œâ”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤"
+printf "  â”‚  %-4s â”‚  %-30sâ”‚  %-4s â”‚  %-9s â”‚\n" "$LLM_GPU" "$LLM_MODEL" "$LLM_PORT" "generate"
+printf "  â”‚  %-4s â”‚  %-30sâ”‚  %-4s â”‚  %-9s â”‚\n" "$ROUTER_GPU" "$ROUTER_MODEL" "$ROUTER_PORT" "generate"
+printf "  â”‚  %-4s â”‚  %-30sâ”‚  %-4s â”‚  %-9s â”‚\n" "$EMBED_GPU" "$EMBED_MODEL" "$EMBED_PORT" "embed"
+printf "  â”‚  %-4s â”‚  %-30sâ”‚  %-4s â”‚  %-9s â”‚\n" "$RERANK_GPU" "$RERANK_MODEL" "$RERANK_PORT" "score"
+printf "  â”‚  %-4s â”‚  %-30sâ”‚  %-4s â”‚  %-9s â”‚\n" "0" "Whisper ($WHISPER_MODEL)" "â€”" "in-process"
+echo "  â””â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜"
 echo ""
 echo "  Next steps:"
 echo "    1. cp .env.vastai .env   (if not already done)"

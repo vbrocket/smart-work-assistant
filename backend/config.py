@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # ElevenLabs (used when tts_backend == "elevenlabs")
     elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = "pNInz6obpgDQGcFmaJgB"
+    elevenlabs_voice_id: str = "t9akNmCDhz230CEXOYmn"
     elevenlabs_model: str = "eleven_multilingual_v2"
 
     # XTTS-v2 (used when tts_backend == "xtts")

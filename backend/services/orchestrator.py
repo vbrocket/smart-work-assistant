@@ -37,9 +37,37 @@ _ROUTER_SYSTEM_PROMPT = """\
 You are a fast intent classifier. Given a user message (and optionally recent conversation context), reply with EXACTLY one word — the intent label. Nothing else.
 
 Intents:
-- policy_qa: Questions about company HR policies, rules, regulations, leave, salary, benefits, travel, training, contracts, employee handbook, disciplinary actions, promotions, working hours, insurance, allowances. Also Arabic equivalents: سياسة، لائحة، إجازة، راتب، ترقية، بدل، سفر، تأمين، تدريب، موظف، عقد، etc.
+- policy_qa: ANY question about company/stc HR policies, rules, regulations, or employee affairs. This covers ALL of the following topics:
+  Org structure & job classification (هيكل تنظيمي، تصنيف وظائف، تقييم وظائف، وصف وظيفي)
+  Recruitment & hiring (توظيف، مقابلات، عرض وظيفي، فحص طبي، عقود عمل، فترة تجربة)
+  Executive appointments & dismissals (تعيين، إعفاء، تكليف وظيفي)
+  Promotions & transfers (ترقية، نقل، تدوير وظيفي)
+  Succession planning (تعاقب وظيفي، خطة تعاقب، بدلاء)
+  Work time management (ساعات عمل، دوام مرن، عمل إضافي، وقت تعويضي، عمل عن بعد، تطوع، زيارات ميدانية، ورديات)
+  All leave types (إجازة سنوية، مرضية، زواج، وفاة، وضع/أمومة، حج، امتحانات، عدة، رياضية، ثقافية، تعلم لغات، غير مدفوعة، إجازة نقل)
+  Rewards, benefits & compensation (مكافآت، مزايا، تعويضات، بدل سكن، بدل نقل، بدل انتداب، مكافأة وردية، مكافأة استدعاء، علاوة)
+  Salary & pay (راتب، رواتب، سلم رواتب، إدارة رواتب)
+  Loans & savings (قرض سكني، قرض سيارة، ادخار مالي)
+  Healthcare & insurance (تأمين طبي، رعاية صحية، علاج)
+  Employee recognition & awards (تكريم، جوائز، تميز، حوافز، برنامج ولاء)
+  Performance management (إدارة أداء، تقييم أداء، تقييم مستدام، أهداف أداء)
+  Education & development (تعليم، تدريب، تطوير كفاءات، تطوير ذاتي، نقل معرفة، ابتعاث، إلحاق، دورات، مؤتمرات)
+  Innovation (ابتكار، تمكين الابتكار)
+  Childcare & disability support (رعاية أطفال، ذوي الإعاقة، دعم مالي)
+  Education support for children (مساعدات تعليمية، تعليم الأبناء)
+  Social solidarity & charity (تكافل اجتماعي، خيري)
+  Telecom product benefits (خدمات اتصالات، منتجات الشركة)
+  Secondment & employee mobility (إعارة، حركة تنقل، إركاب، شحن، استقرار)
+  End of service (انتهاء خدمة، مكافأة نهاية الخدمة، استقالة، تقاعد، فسخ عقد)
+  Grievances & complaints (تظلم، شكوى، شكاوي)
+  Disciplinary actions (تأديب، مخالفات، جزاءات، إيقاف، سلوك مهني)
+  Contractors & supplementary staff (متعاقدون، تكميليين)
+  International offices (مكاتب دولية)
+  Relatives & conflict of interest (أقارب، قرابة، تعارض مصالح)
+  Summer/cooperative training (تدريب صيفي، تدريب تعاوني)
+  When in doubt between policy_qa and general, choose policy_qa.
 - workspace: Questions about the user's emails, inbox, calendar, meetings, schedule, tasks, to-do items, appointments, reminders, daily summary. Also Arabic equivalents: بريد، إيميل، رسالة، مهام، تقويم، اجتماع، موعد، ملخص، etc. IMPORTANT: Follow-up messages (e.g. "yes", "tell me more", "نعم", "أكثر", "تفاصيل", "من فضلك") that come after a workspace conversation should ALSO be classified as workspace.
-- general: Greetings, general knowledge, anything not related to company policies or the user's workspace.
+- general: ONLY greetings (hi, hello, السلام عليكم), general knowledge questions completely unrelated to the company, or casual conversation.
 
 Reply with one word only: policy_qa, workspace, or general."""
 
@@ -73,7 +101,7 @@ async def _llm_route(
                 max_tokens=20,
                 temperature=0.0,
             ),
-            timeout=3.0,
+            timeout=8.0,
         )
 
         raw = response.choices[0].message.content.strip().lower()
@@ -102,94 +130,306 @@ async def _llm_route(
 # ------------------------------------------------------------------ #
 
 _POLICY_KEYWORDS_AR = [
+    # --- General policy terms ---
     r"سياس",           # سياسة / سياسات
     r"لائح",           # لائحة / لوائح
     r"نظام\b",
-    r"إجاز",           # إجازة / إجازات
-    r"اجاز",
-    r"رصيد\s*الإجاز",
     r"موارد\s*بشري",
-    r"بدل",            # بدلات
-    r"رات[بي]",        # راتب / رواتب
-    r"ترقي",           # ترقية / ترقيات
-    r"تأديب",          # تأديبي / تأديبية
-    r"سلوك",           # قواعد السلوك
-    r"سفر",            # سياسة السفر / تذاكر سفر
-    r"تذاكر",
-    r"تذكر[ةه]",
-    r"درج[ةه]",        # درجة أعمال / درجة سياحية
-    r"درجات",
-    r"ضياف[ةه]",       # درجة الضيافة
-    r"مصاري[فف]",
-    r"ساع[اة]ت?\s*عمل",
-    r"عمل\s*إضاف",     # ساعات عمل إضافية
-    r"تجرب[ةه]",       # فترة التجربة
-    r"استقال",         # استقالة
-    r"فصل",
-    r"إنها[ءئ]\s*خدم",
-    r"تعليم",
-    r"تطوير\s*[اك]",   # تطوير الكفاءات
-    r"كفاء[اة]ت",
-    r"تدريب",
-    r"تنقل",           # حركة تنقل
-    r"نقل\s*الموظف",
-    r"متعاقد",         # موظفين متعاقدين
-    r"تعاقد",
-    r"تكميل",          # تكميليين
     r"دليل\s*الموظف",
+    r"موظف",           # موظفين
+    r"شرو[طض]",        # شروط
     r"حق\b",           # يحق / حقوق
     r"حقوق",
     r"يستحق",
-    r"شرو[طض]",        # شروط
-    r"فرق\s*بين",      # ما الفرق بين
+    r"ضوابط",
+    r"فرق\s*بين",
     r"مقارن[ةه]",
-    r"موظف",           # موظفين
+    # --- Org structure & job classification ---
+    r"هيكل\s*تنظيم",
+    r"تصنيف\s*وظ",
+    r"تقييم\s*وظ",
+    r"وصف\s*وظيف",
+    r"عائل[ةه]\s*وظيف",
+    # --- Recruitment & hiring ---
+    r"توظيف",
+    r"مقابل[ةه]",
+    r"عرض\s*وظيف",
+    r"فحص\s*طب",
     r"عقد\b",          # عقد عمل
     r"عقود",
+    r"تجرب[ةه]",       # فترة التجربة
+    r"مرشح",
+    # --- Appointments, assignments, dismissals ---
+    r"تعيين",
+    r"إعفاء",
+    r"تكليف",
+    # --- Promotions & transfers ---
+    r"ترقي",           # ترقية / ترقيات
+    r"نقل\s*الموظف",
+    r"تنقل",
+    r"تدوير\s*وظيف",
+    # --- Succession planning ---
+    r"تعاقب",
+    r"بدلاء",
+    r"خط[ةه]\s*تعاقب",
+    # --- Work time management ---
+    r"ساع[اة]ت?\s*عمل",
+    r"عمل\s*إضاف",
+    r"دوام\s*مرن",
+    r"عمل\s*عن\s*بعد",
+    r"وقت\s*تعويض",
+    r"وردي[ةه]",       # ورديات / مكافأة وردية
+    r"تطوع",
+    r"زيار[اة]ت?\s*ميداني",
+    # --- Leave types ---
+    r"إجاز",           # إجازة / إجازات
+    r"اجاز",
+    r"رصيد\s*الإجاز",
+    r"إجاز[ةه]\s*سنوي",
+    r"إجاز[ةه]\s*مرضي",
+    r"إجاز[ةه]\s*زواج",
+    r"إجاز[ةه]\s*وفا[ةه]",
+    r"إجاز[ةه]\s*وضع",
+    r"أموم[ةه]",
+    r"إجاز[ةه]\s*حج",
+    r"إجاز[ةه]\s*امتحان",
+    r"عد[ةه]",         # إجازة العدة
+    r"إجاز[ةه]\s*نقل",
+    # --- Rewards, benefits & compensation ---
     r"مكاف[أآا][ةه]",  # مكافأة
+    r"مزاي",           # مزايا
+    r"تعويض",
+    r"بدل",            # بدلات
+    r"بدل\s*سكن",
+    r"بدل\s*نقل",
+    r"بدل\s*انتداب",
+    r"انتداب",
+    r"علاو[ةه]",       # علاوة
+    r"استدعاء",
+    # --- Salary & pay ---
+    r"رات[بي]",        # راتب / رواتب
+    r"رواتب",
+    r"سلم\s*رواتب",
+    # --- Loans & savings ---
+    r"قرض",
+    r"قروض",
+    r"ادخار",
+    # --- Healthcare & insurance ---
     r"تأمين",          # تأمين طبي
     r"طب[يّ]",
     r"علاج",
+    r"رعاي[ةه]\s*صحي",
+    # --- Recognition & awards ---
+    r"تكريم",
+    r"جائز",           # جائزة / جوائز
+    r"جوائز",
+    r"تميز",
+    r"حافز",           # حافز / حوافز
+    r"حوافز",
+    r"ولاء",           # برنامج ولاء
+    # --- Performance management ---
+    r"إدار[ةه]\s*أداء",
+    r"تقييم\s*أداء",
+    r"تقييم\s*مستدام",
+    r"أهداف\s*أداء",
+    r"أداء\s*الموظف",
+    # --- Education & development ---
+    r"تعليم",
+    r"تدريب",
+    r"تطوير",
+    r"كفاء[اة]ت",
+    r"تطوير\s*ذات",
+    r"نقل\s*معرف",
+    r"ابتعاث",
+    r"إلحاق",
+    r"دور[اة]ت",       # دورات
+    r"مؤتمر",
+    # --- Innovation ---
+    r"ابتكار",
+    # --- Childcare & disability ---
+    r"رعاي[ةه]\s*أطفال",
+    r"ذوي\s*الإعاق",
+    r"إعاق[ةه]",
+    # --- Education support for children ---
+    r"مساعد[اة]ت?\s*تعليم",
+    r"تعليم\s*الأبناء",
+    # --- Social solidarity ---
+    r"تكافل",
+    # --- Telecom benefits ---
+    r"خدمات\s*اتصالات",
+    r"منتجات\s*الشركة",
+    # --- Secondment & mobility ---
+    r"إعار[ةه]",
+    r"إركاب",
+    r"شحن",
+    r"بدل\s*استقرار",
+    # --- End of service ---
+    r"انتهاء\s*خدم",
+    r"إنها[ءئ]\s*خدم",
+    r"نهاي[ةه]\s*الخدم",
+    r"استقال",
+    r"تقاعد",
+    r"فسخ\s*عقد",
+    r"فصل",
+    # --- Grievances & complaints ---
+    r"تظلم",
+    r"شكو[ىي]",
+    r"شكاو[يى]",
+    # --- Disciplinary ---
+    r"تأديب",
+    r"مخالف",
+    r"جزاء",
+    r"إيقاف",
+    r"سلوك",
+    # --- Contractors ---
+    r"متعاقد",
+    r"تعاقد",
+    r"تكميل",
+    # --- Travel ---
+    r"سفر",
+    r"تذاكر",
+    r"تذكر[ةه]",
+    r"درج[ةه]",
+    r"درجات",
+    r"ضياف[ةه]",
+    r"مصاري[فف]",
+    # --- Relatives & conflict of interest ---
+    r"أقارب",
+    r"قراب[ةه]",
+    r"تعارض\s*مصالح",
+    # --- Summer/cooperative training ---
+    r"تدريب\s*صيف",
+    r"تدريب\s*تعاون",
+    # --- International offices ---
+    r"مكاتب\s*دولي",
 ]
 
 _POLICY_KEYWORDS_EN = [
+    # --- General policy terms ---
     r"\bpolic(?:y|ies)\b",
     r"\bhr\b",
     r"\bhuman\s+resource",
+    r"\bhandbook\b",
+    r"\bregulat",
+    r"\bemployee\b",
+    r"\bguidelines?\b",
+    # --- Org structure & jobs ---
+    r"\borg\w*\s+structur",
+    r"\bjob\s+classif",
+    r"\bjob\s+(?:description|evaluation)\b",
+    # --- Recruitment & hiring ---
+    r"\brecruit",
+    r"\bhir(?:e|ing)\b",
+    r"\bcontract",
+    r"\bprobation\b",
+    r"\binterview\b",
+    r"\bjob\s+offer\b",
+    # --- Appointments ---
+    r"\bappoint",
+    r"\bassign",
+    r"\bdismiss",
+    # --- Promotions & transfers ---
+    r"\bpromot",
+    r"\btransfer\b",
+    r"\bjob\s+rotation\b",
+    # --- Succession ---
+    r"\bsuccession\b",
+    # --- Work time ---
+    r"\bworking\s+hours?\b",
+    r"\bovertime\b",
+    r"\bflexible?\s+(?:hours?|schedule|work)",
+    r"\bremote\s+work",
+    r"\bwork\s+from\s+home\b",
+    r"\bshift\b",
+    r"\bvolunteer",
+    # --- Leave ---
     r"\bleave\b",
     r"\bvacation\b",
     r"\bannual\s+leave\b",
     r"\bsick\s+leave\b",
     r"\bmaternit",
     r"\bpaternit",
+    r"\bbereavement\b",
+    r"\bmarriage\s+leave\b",
+    r"\bhajj\s+leave\b",
+    r"\bexam\s+leave\b",
+    r"\bunpaid\s+leave\b",
+    # --- Rewards & compensation ---
     r"\bbenefits?\b",
     r"\ballowan",
     r"\bsalar(?:y|ies)\b",
-    r"\bpromot",
-    r"\bdisciplin",
-    r"\bcode\s+of\s+conduct\b",
-    r"\btravel\b",
-    r"\bticket",
+    r"\bcompensation\b",
+    r"\brewards?\b",
+    r"\bbonus\b",
+    r"\bpay\s*(?:roll|scale|grade)\b",
     r"\breimburs",
     r"\bexpens",
-    r"\bworking\s+hours?\b",
-    r"\bovertime\b",
-    r"\bprobation\b",
+    r"\bper\s+diem\b",
+    # --- Loans & savings ---
+    r"\bloan\b",
+    r"\bhousing\s+loan\b",
+    r"\bcar\s+loan\b",
+    r"\bsavings?\b",
+    # --- Healthcare & insurance ---
+    r"\binsurance\b",
+    r"\bmedical\b",
+    r"\bhealthcare\b",
+    r"\bhealth\s+care\b",
+    # --- Recognition & awards ---
+    r"\brecognition\b",
+    r"\bawards?\b",
+    r"\bhonor",
+    r"\bincentiv",
+    r"\bloyalty\b",
+    r"\bexcellence\b",
+    # --- Performance ---
+    r"\bperformance\b",
+    r"\bappraisal\b",
+    r"\bevaluation\b",
+    r"\bkpi\b",
+    r"\bobjectives?\b",
+    # --- Education & development ---
+    r"\btraining\b",
+    r"\beducation\b",
+    r"\bdevelopment\b",
+    r"\bscholarship\b",
+    r"\bknowledge\s+transfer\b",
+    r"\bconference\b",
+    # --- Innovation ---
+    r"\binnovation\b",
+    # --- Childcare & disability ---
+    r"\bchildcare\b",
+    r"\bdisabilit",
+    # --- End of service ---
     r"\btermina",
     r"\bresign",
-    r"\bhandbook\b",
-    r"\bregulat",
-    r"\bemployee\b",
-    r"\bcontract",
-    r"\bgrade\b",
+    r"\bretir",
+    r"\bend\s+of\s+service\b",
+    r"\bgratuity\b",
+    # --- Grievances ---
+    r"\bgrievance\b",
+    r"\bcomplaint\b",
+    # --- Disciplinary ---
+    r"\bdisciplin",
+    r"\bcode\s+of\s+conduct\b",
+    r"\bviolation\b",
+    r"\bpenalt",
+    r"\bsuspension\b",
+    # --- Travel ---
+    r"\btravel\b",
+    r"\bticket",
     r"\bbusiness\s+class\b",
     r"\beconomy\s+class\b",
     r"\bhospitalit",
-    r"\binsurance\b",
-    r"\bmedical\b",
-    r"\btraining\b",
-    r"\btransfer\b",
+    # --- Secondment ---
+    r"\bsecondment\b",
+    r"\brelocat",
+    # --- Contractors ---
+    r"\bcontractor\b",
     r"\bsupplement",
+    # --- Conflict of interest ---
+    r"\bconflict\s+of\s+interest\b",
+    r"\brelatives?\b",
 ]
 
 _WORKSPACE_KEYWORDS_AR = [

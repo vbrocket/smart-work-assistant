@@ -1,4 +1,2 @@
+# Force LF line endings for shell scripts (prevents bash\r error on Linux)
 *.sh text eol=lf
-*.bash text eol=lf
-Makefile text eol=lf
-*.bat text eol=crlf
