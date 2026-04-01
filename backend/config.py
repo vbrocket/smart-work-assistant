@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # vLLM local endpoints (used when *_BACKEND=vllm)
     vllm_llm_url: str = "http://localhost:8001/v1"
-    vllm_llm_model: str = "Qwen/Qwen3-32B"
+    vllm_llm_model: str = "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4"
     vllm_embed_url: str = "http://localhost:8002/v1"
     vllm_embed_model: str = "BAAI/bge-m3"
     vllm_rerank_url: str = "http://localhost:8003"

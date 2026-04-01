@@ -439,6 +439,12 @@ class VLLMProvider(LLMProvider):
             )
         return self._client
 
+    @staticmethod
+    def _strip_thinking(text: str) -> str:
+        """Remove <think>…</think> blocks that Qwen models may emit."""
+        import re
+        return re.sub(r"<think>[\s\S]*?</think>\s*", "", text).strip()
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
@@ -459,8 +465,10 @@ class VLLMProvider(LLMProvider):
             top_p=top_p,
             max_tokens=max_tokens,
             stream=False,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
-        return response.choices[0].message.content or ""
+        raw = response.choices[0].message.content or ""
+        return self._strip_thinking(raw)
 
     async def chat_stream(
         self,
@@ -481,6 +489,7 @@ class VLLMProvider(LLMProvider):
             top_p=top_p,
             max_tokens=max_tokens,
             stream=True,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
         first_token = True
         async for chunk in stream:

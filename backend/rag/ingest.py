@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import asyncio
+
 from .bm25_store import BM25Store
 from .chunker import SectionChunker
 from .embedder import Embedder
@@ -17,6 +19,91 @@ from .table_extractor import TableExtractor
 from .vector_store import VectorStoreBase
 
 logger = logging.getLogger("rag.ingest")
+
+
+# ── LLM Table Enrichment ──────────────────────────────────────────
+
+_TABLE_ENRICH_PROMPT = """\
+أعد كتابة هذا الجدول بالعربية الفصحى الواضحة.
+- صحّح أي أخطاء إملائية أو كلمات مقلوبة أو حروف مشوهة
+- أضف بجانب كل مسمى وظيفي رسمي المرادفات الشائعة بين قوسين
+  مثال: "مدراء الإدارات ومن في حكمهم (مدير إدارة، مدير القسم)"
+- أضف بجانب أي مصطلح رسمي غامض شرحاً مختصراً بين قوسين
+- حافظ على جميع الأرقام والمبالغ والنسب كما هي بالضبط — لا تغير أي رقم
+- حافظ على بنية الجدول (نفس عدد الأعمدة والصفوف)
+- أخرج جدول markdown فقط، بدون أي شرح أو مقدمة أو خاتمة
+
+الجدول:
+"""
+
+
+async def _enrich_table_with_llm(llm_provider, raw_text: str) -> Optional[str]:
+    """Send a raw table chunk to the LLM for cleanup and synonym enrichment.
+
+    Returns the enriched text, or None on failure.
+    """
+    try:
+        result = await asyncio.wait_for(
+            llm_provider.chat(
+                messages=[
+                    {"role": "system", "content": _TABLE_ENRICH_PROMPT + raw_text},
+                    {"role": "user", "content": "أعد كتابة الجدول"},
+                ],
+                temperature=0.0,
+                max_tokens=2048,
+            ),
+            timeout=90.0,
+        )
+        cleaned = result.strip()
+        # Strip Qwen3 chain-of-thought <think>...</think> blocks
+        import re as _re
+        cleaned = _re.sub(r"<think>.*?</think>\s*", "", cleaned, flags=_re.DOTALL)
+        cleaned = cleaned.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0].strip()
+
+        if "|" not in cleaned or len(cleaned) < 20:
+            logger.warning("LLM enrichment returned non-table output (%d chars), skipping", len(cleaned))
+            return None
+
+        return cleaned
+    except asyncio.TimeoutError:
+        logger.warning("LLM table enrichment timed out")
+        return None
+    except Exception as e:
+        logger.warning("LLM table enrichment failed: %s", e)
+        return None
+
+
+async def _enrich_all_tables(llm_provider, table_chunks: List[ChunkRecord]) -> int:
+    """Enrich all table chunks using the LLM. Returns count of successfully enriched tables."""
+    if not table_chunks:
+        return 0
+
+    enriched_count = 0
+    for i, rec in enumerate(table_chunks):
+        logger.info("Enriching table %d/%d (page %d, section %s)...",
+                     i + 1, len(table_chunks), rec.page_start, rec.section_id)
+        rec.raw_table_text = rec.text
+
+        enriched = await _enrich_table_with_llm(llm_provider, rec.text)
+        if enriched:
+            prefix_parts = []
+            if rec.table_title:
+                prefix_parts.append(rec.table_title)
+            if rec.section_id:
+                prefix_parts.append(f"(القسم {rec.section_id})")
+            prefix = " ".join(prefix_parts) + "\n\n" if prefix_parts else ""
+
+            rec.text = prefix + enriched
+            enriched_count += 1
+            logger.info("  Table %d enriched successfully (%d chars)", i + 1, len(rec.text))
+        else:
+            logger.info("  Table %d kept raw (enrichment failed)", i + 1)
+
+    return enriched_count
 
 try:
     import fitz  # PyMuPDF
@@ -174,6 +261,7 @@ class IngestionPipeline:
         documents_dir: str = "documents",
         chunk_max_tokens: int = 1100,
         chunk_overlap_tokens: int = 100,
+        llm_provider: Any = None,
     ):
         self.vector_store = vector_store
         self.bm25_store = bm25_store
@@ -184,6 +272,7 @@ class IngestionPipeline:
             overlap_tokens=chunk_overlap_tokens,
         )
         self.table_extractor = TableExtractor()
+        self._llm_provider = llm_provider
         self._last_ingestion: Optional[str] = None
 
     async def ingest(self) -> Dict[str, Any]:
@@ -217,6 +306,13 @@ class IngestionPipeline:
                     filepath, doc_id=doc_id, doc_name=filename,
                     doc_version=doc_version, page_section_map=page_section_map,
                 )
+                logger.info("Table enrichment check: llm_provider=%s, table_chunks=%d",
+                            type(self._llm_provider).__name__ if self._llm_provider else "None",
+                            len(table_chunks))
+                if self._llm_provider and table_chunks:
+                    n_enriched = await _enrich_all_tables(self._llm_provider, table_chunks)
+                    logger.info("LLM-enriched %d/%d tables for %s", n_enriched, len(table_chunks), filename)
+
                 all_records.extend(text_chunks)
                 all_records.extend(table_chunks)
                 source_files.append(filename)

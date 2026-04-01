@@ -27,6 +27,7 @@ class ChunkRecord(BaseModel):
     token_span: str = ""
     table_title: str = ""
     row_index: int = -1
+    raw_table_text: str = ""
 
     def stable_id(self) -> str:
         """Deterministic UUID derived from document + section + sub + row."""

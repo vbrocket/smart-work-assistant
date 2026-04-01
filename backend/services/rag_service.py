@@ -66,6 +66,8 @@ class RAGService:
             fusion_method=settings.rag_fusion_method,
         )
 
+        self._llm_provider = create_llm_provider()
+
         self._pipeline = IngestionPipeline(
             vector_store=self._vector_store,
             bm25_store=self._bm25_store,
@@ -73,9 +75,10 @@ class RAGService:
             documents_dir=self.documents_dir,
             chunk_max_tokens=settings.rag_chunk_max_tokens,
             chunk_overlap_tokens=settings.rag_chunk_overlap_tokens,
+            llm_provider=self._llm_provider,
         )
 
-        self._qa = QAEngine(provider=create_llm_provider())
+        self._qa = QAEngine(provider=self._llm_provider)
 
     # ── Ingestion ──────────────────────────────────────────────────
 

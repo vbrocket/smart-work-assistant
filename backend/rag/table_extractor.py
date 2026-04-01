@@ -45,6 +45,34 @@ def _arabic_ratio(s: str) -> float:
     return sum(1 for c in alpha if _is_arabic_char(c)) / len(alpha)
 
 
+_ARABIC_FIXES = [
+    (re.compile(r"اإل"), "الإ"),
+    (re.compile(r"\bيف\b"), "في"),
+    (re.compile(r"\bىلع\b"), "على"),
+    (re.compile(r"\bنم\b"), "من"),
+    (re.compile(r"\bىلإ\b"), "إلى"),
+    (re.compile(r"\bنأ\b"), "أن"),
+    (re.compile(r"\bنإ\b"), "إن"),
+    (re.compile(r"\bريغ\b"), "غير"),
+    (re.compile(r"\bعم\b"), "مع"),
+    (re.compile(r"\bدق\b"), "قد"),
+    (re.compile(r"\bلك\b"), "كل"),
+    (re.compile(r"\bدعب\b"), "بعد"),
+    (re.compile(r"\bلبق\b"), "قبل"),
+    (re.compile(r"\bنيب\b"), "بين"),
+    (re.compile(r"\bىتح\b"), "حتى"),
+]
+
+
+def _normalize_arabic_text(text: str) -> str:
+    """Fix common PyMuPDF Arabic extraction artifacts (broken lam-alef, reversed short words)."""
+    if not text or _arabic_ratio(text) < 0.2:
+        return text
+    for pattern, replacement in _ARABIC_FIXES:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def _fix_cell_text(text: str) -> str:
     """Normalise and fix character-reversed Arabic within a single table cell.
 
@@ -235,9 +263,12 @@ class TableExtractor:
                 if not non_empty_rows:
                     continue
 
-                headers = [_fix_cell_text(str(c)) if c else f"col{i}" for i, c in enumerate(data[0])]
+                headers = [
+                    _normalize_arabic_text(_fix_cell_text(str(c))) if c else f"col{i}"
+                    for i, c in enumerate(data[0])
+                ]
                 rows = [
-                    [_fix_cell_text(str(c)) if c else "" for c in row]
+                    [_normalize_arabic_text(_fix_cell_text(str(c))) if c else "" for c in row]
                     for row in non_empty_rows
                 ]
 

@@ -100,11 +100,15 @@ async def _llm_route(
                 ],
                 max_tokens=20,
                 temperature=0.0,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             ),
             timeout=8.0,
         )
 
-        raw = response.choices[0].message.content.strip().lower()
+        import re as _re
+        _raw_content = response.choices[0].message.content or ""
+        _raw_content = _re.sub(r"<think>[\s\S]*?</think>\s*", "", _raw_content)
+        raw = _raw_content.strip().lower()
         for token in raw.replace("\n", " ").split():
             cleaned = token.strip(".,;:!?\"'`")
             if cleaned in _VALID_INTENTS:

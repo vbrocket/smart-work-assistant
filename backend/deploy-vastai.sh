@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # â”€â”€ Configurable via environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-LLM_MODEL="${VLLM_LLM_MODEL:-Qwen/Qwen3-32B}"
+LLM_MODEL="${VLLM_LLM_MODEL:-Qwen/Qwen3.5-122B-A10B-GPTQ-Int4}"
 LLM_TP="${VLLM_TP:-2}"
 LLM_PORT="${VLLM_LLM_PORT:-8001}"
 LLM_GPU="${VLLM_LLM_GPU:-0,1}"
@@ -187,10 +187,10 @@ if [ "$SKIP_LLM" -eq 0 ]; then
     CUDA_VISIBLE_DEVICES="$LLM_GPU" vllm serve "$LLM_MODEL" \
         --port "$LLM_PORT" \
         --tensor-parallel-size "$LLM_TP" \
-        --gpu-memory-utilization 0.70 \
+        --gpu-memory-utilization 0.50 \
         --max-model-len 32768 \
-        --dtype bfloat16 \
-        --disable-log-requests \
+        --quantization moe_wna16 \
+        --language-model-only \
         --download-dir /workspace/models \
         > "$LOG_DIR/vllm_llm.log" 2>&1 &
     PID_LLM=$!
@@ -212,7 +212,6 @@ if [ "$SKIP_EMBED" -eq 0 ]; then
         --gpu-memory-utilization 0.15 \
         --max-model-len 8192 \
         --dtype float16 \
-        --disable-log-requests \
         --download-dir /workspace/models \
         > "$LOG_DIR/vllm_embed.log" 2>&1 &
     PID_EMBED=$!
@@ -234,7 +233,6 @@ if [ "$SKIP_RERANK" -eq 0 ]; then
         --gpu-memory-utilization 0.15 \
         --max-model-len 512 \
         --dtype float16 \
-        --disable-log-requests \
         --download-dir /workspace/models \
         > "$LOG_DIR/vllm_rerank.log" 2>&1 &
     PID_RERANK=$!
@@ -261,7 +259,7 @@ if [ "$NEED_WAIT" -eq 1 ]; then
 fi
 
 if [ "$SKIP_LLM" -eq 0 ]; then
-    if wait_for_port "$LLM_PORT" "vLLM LLM" 900 "$PID_LLM"; then
+    if wait_for_port "$LLM_PORT" "vLLM LLM" 1800 "$PID_LLM"; then
         verify_gpu "$LLM_GPU" "LLM"
         LLM_OK=1
     else
