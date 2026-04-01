@@ -451,7 +451,7 @@ class VLLMProvider(LLMProvider):
         temperature: float = 0.7,
         top_p: float = 0.9,
         stream: bool = False,
-        max_tokens: int = 4096,
+        max_tokens: int = 2048,
     ) -> str:
         client = self._get_client()
         logger.info(
@@ -475,7 +475,7 @@ class VLLMProvider(LLMProvider):
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         top_p: float = 0.9,
-        max_tokens: int = 4096,
+        max_tokens: int = 2048,
     ) -> AsyncIterator[str]:
         client = self._get_client()
         logger.info(
