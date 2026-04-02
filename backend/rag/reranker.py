@@ -95,12 +95,19 @@ class Reranker:
     ) -> List[DocHit]:
         t0 = time.time()
         url = f"{self._vllm_url}/rerank"
+        q_trunc = query[:120]
+        d_max = 400
         payload = {
             "model": self._vllm_model,
-            "query": query,
-            "documents": [h.text for h in hits],
+            "query": q_trunc,
+            "documents": [h.text[:d_max] for h in hits],
             "top_n": top_k,
         }
+        logger.debug(
+            "vLLM reranker request | pairs=%d | q_len=%d | max_d_len=%d",
+            len(hits), len(q_trunc),
+            max(len(h.text[:d_max]) for h in hits) if hits else 0,
+        )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, json=payload)

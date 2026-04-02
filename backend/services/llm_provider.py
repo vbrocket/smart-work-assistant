@@ -31,6 +31,7 @@ class LLMProvider(ABC):
         top_p: float = 0.9,
         stream: bool = False,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> str:
         """Send a chat-completion request and return the assistant message."""
 
@@ -41,6 +42,7 @@ class LLMProvider(ABC):
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> AsyncIterator[str]:
         """Yield token strings as they arrive from the LLM."""
 
@@ -86,6 +88,7 @@ class OllamaProvider(LLMProvider):
         top_p: float = 0.9,
         stream: bool = False,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> str:
         url = f"{self._base_url}/api/chat"
         payload: Dict[str, Any] = {
@@ -108,6 +111,7 @@ class OllamaProvider(LLMProvider):
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> AsyncIterator[str]:
         import json as _json
 
@@ -221,6 +225,7 @@ class HuggingFaceProvider(LLMProvider):
         top_p: float = 0.9,
         stream: bool = False,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> str:
         import asyncio
 
@@ -249,6 +254,7 @@ class HuggingFaceProvider(LLMProvider):
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> AsyncIterator[str]:
         import asyncio
         import queue as _queue
@@ -350,6 +356,7 @@ class OpenRouterProvider(LLMProvider):
         top_p: float = 0.9,
         stream: bool = False,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> str:
         client = self._get_client()
         logger.info(
@@ -372,6 +379,7 @@ class OpenRouterProvider(LLMProvider):
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 4096,
+        enable_thinking: Optional[bool] = None,
     ) -> AsyncIterator[str]:
         client = self._get_client()
         logger.info(
@@ -441,9 +449,24 @@ class VLLMProvider(LLMProvider):
 
     @staticmethod
     def _strip_thinking(text: str) -> str:
-        """Remove <think>…</think> blocks that Qwen models may emit."""
+        """Remove thinking blocks that Qwen models may emit.
+
+        Handles both explicit <think>...</think> and implicit thinking
+        (no opening tag, just a closing </think>).
+        """
         import re
-        return re.sub(r"<think>[\s\S]*?</think>\s*", "", text).strip()
+        text = re.sub(r"<think>[\s\S]*?</think>\s*", "", text)
+        if "</think>" in text:
+            text = text.split("</think>", 1)[1]
+        return text.strip()
+
+    def _build_extra_body(self, thinking: bool) -> dict:
+        """Build the extra_body dict for vLLM requests."""
+        body: dict = {"chat_template_kwargs": {"enable_thinking": thinking}}
+        if thinking:
+            settings = get_settings()
+            body["thinking_token_budget"] = settings.thinking_budget
+        return body
 
     async def chat(
         self,
@@ -452,11 +475,13 @@ class VLLMProvider(LLMProvider):
         top_p: float = 0.9,
         stream: bool = False,
         max_tokens: int = 2048,
+        enable_thinking: Optional[bool] = None,
     ) -> str:
+        thinking = enable_thinking if enable_thinking is not None else False
         client = self._get_client()
         logger.info(
-            "LLM call | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d",
-            self._model, len(messages), temperature, max_tokens,
+            "LLM call | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d | thinking=%s",
+            self._model, len(messages), temperature, max_tokens, thinking,
         )
         response = await client.chat.completions.create(
             model=self._model,
@@ -465,7 +490,7 @@ class VLLMProvider(LLMProvider):
             top_p=top_p,
             max_tokens=max_tokens,
             stream=False,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=self._build_extra_body(thinking),
         )
         raw = response.choices[0].message.content or ""
         return self._strip_thinking(raw)
@@ -476,11 +501,13 @@ class VLLMProvider(LLMProvider):
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 2048,
+        enable_thinking: Optional[bool] = None,
     ) -> AsyncIterator[str]:
+        thinking = enable_thinking if enable_thinking is not None else False
         client = self._get_client()
         logger.info(
-            "LLM stream | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d",
-            self._model, len(messages), temperature, max_tokens,
+            "LLM stream | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d | thinking=%s",
+            self._model, len(messages), temperature, max_tokens, thinking,
         )
         stream = await client.chat.completions.create(
             model=self._model,
@@ -489,15 +516,50 @@ class VLLMProvider(LLMProvider):
             top_p=top_p,
             max_tokens=max_tokens,
             stream=True,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=self._build_extra_body(thinking),
         )
         first_token = True
+        in_think = False
+        seen_first = False
         async for chunk in stream:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
             token = (delta.content if delta and delta.content else "") or ""
-            if token:
+            if not token:
+                continue
+            if not seen_first:
+                seen_first = True
+                stripped = token.lstrip()
+                if stripped.startswith("<think>"):
+                    in_think = True
+                    token = stripped[len("<think>"):]
+                    if not token:
+                        continue
+                elif thinking and "</think>" not in stripped:
+                    in_think = True
+            if in_think:
+                end = token.find("</think>")
+                if end == -1:
+                    continue
+                token = token[end + len("</think>"):]
+                in_think = False
+                if not token:
+                    continue
+            while "<think>" in token:
+                before, _, after = token.partition("<think>")
+                if before:
+                    if first_token:
+                        logger.info("LLM stream | first token received from %s", self._model)
+                        first_token = False
+                    yield before
+                end = after.find("</think>")
+                if end == -1:
+                    in_think = True
+                    token = ""
+                    break
+                token = after[end + len("</think>"):]
+            if token and not in_think:
                 if first_token:
                     logger.info("LLM stream | first token received from %s", self._model)
                     first_token = False

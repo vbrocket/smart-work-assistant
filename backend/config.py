@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     rag_rerank_top_k: int = 20
     rag_final_top_k: int = 10
 
+    # Thinking / reasoning budget (0 = disabled)
+    thinking_budget: int = 1024
+
     # Chunking
     rag_chunk_max_tokens: int = 1100
     rag_chunk_overlap_tokens: int = 100

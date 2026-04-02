@@ -639,10 +639,17 @@ class NamaaTTSService:
 
         def _generate():
             self._load()
-            import torchaudio
+            import numpy as np
+            import wave as _wave
             wav = self._model.generate(text, language_id="ar")
+            pcm = wav.squeeze().cpu().numpy()
+            pcm16 = np.clip(pcm * 32767, -32768, 32767).astype(np.int16)
             buf = io.BytesIO()
-            torchaudio.save(buf, wav, self._sr, format="wav")
+            with _wave.open(buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(self._sr)
+                wf.writeframes(pcm16.tobytes())
             return buf.getvalue()
 
         return await asyncio.to_thread(_generate)

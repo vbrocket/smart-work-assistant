@@ -51,6 +51,7 @@ async def _enrich_table_with_llm(llm_provider, raw_text: str) -> Optional[str]:
                 ],
                 temperature=0.0,
                 max_tokens=2048,
+                enable_thinking=False,
             ),
             timeout=90.0,
         )

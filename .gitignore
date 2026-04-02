@@ -62,3 +62,20 @@ sync-to-h200.bat
 
 # Misc scratch files
 readme
+
+# Large archives / binaries
+*.tar.gz
+*.zip
+*.bin
+*.safetensors
+*.onnx
+
+# PDF files at root (policy docs etc.)
+/*.pdf
+
+# Temp / debug scripts at root
+tmp_*.py
+_*.sh
+_*.py
+start_llm.sh
+start_sglang.sh
