@@ -21,18 +21,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # â”€â”€ Configurable via environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-LLM_MODEL="${VLLM_LLM_MODEL:-Qwen/Qwen3.5-122B-A10B-GPTQ-Int4}"
-LLM_TP="${VLLM_TP:-2}"
+LLM_MODEL="${VLLM_LLM_MODEL:-Qwen/Qwen3.5-27B}"
+LLM_TP="${VLLM_TP:-1}"
 LLM_PORT="${VLLM_LLM_PORT:-8001}"
-LLM_GPU="${VLLM_LLM_GPU:-0,1}"
+LLM_GPU="${VLLM_LLM_GPU:-0}"
 
 EMBED_MODEL="${VLLM_EMBED_MODEL:-BAAI/bge-m3}"
 EMBED_PORT="${VLLM_EMBED_PORT:-8002}"
-EMBED_GPU="${VLLM_EMBED_GPU:-1}"
+EMBED_GPU="${VLLM_EMBED_GPU:-0}"
 
 RERANK_MODEL="${VLLM_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}"
 RERANK_PORT="${VLLM_RERANK_PORT:-8003}"
-RERANK_GPU="${VLLM_RERANK_GPU:-1}"
+RERANK_GPU="${VLLM_RERANK_GPU:-0}"
 
 APP_PORT="${APP_PORT:-18000}"
 
@@ -187,10 +187,9 @@ if [ "$SKIP_LLM" -eq 0 ]; then
     CUDA_VISIBLE_DEVICES="$LLM_GPU" vllm serve "$LLM_MODEL" \
         --port "$LLM_PORT" \
         --tensor-parallel-size "$LLM_TP" \
-        --gpu-memory-utilization 0.50 \
+        --gpu-memory-utilization 0.70 \
         --max-model-len 32768 \
-        --quantization moe_wna16 \
-        --language-model-only \
+        --dtype bfloat16 \
         --download-dir /workspace/models \
         > "$LOG_DIR/vllm_llm.log" 2>&1 &
     PID_LLM=$!
@@ -209,7 +208,7 @@ if [ "$SKIP_EMBED" -eq 0 ]; then
         --convert embed \
         --runner pooling \
         --port "$EMBED_PORT" \
-        --gpu-memory-utilization 0.15 \
+        --gpu-memory-utilization 0.10 \
         --max-model-len 8192 \
         --dtype float16 \
         --download-dir /workspace/models \
@@ -230,7 +229,7 @@ if [ "$SKIP_RERANK" -eq 0 ]; then
         --convert classify \
         --runner pooling \
         --port "$RERANK_PORT" \
-        --gpu-memory-utilization 0.15 \
+        --gpu-memory-utilization 0.05 \
         --max-model-len 512 \
         --dtype float16 \
         --download-dir /workspace/models \
