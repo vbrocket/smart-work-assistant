@@ -639,9 +639,16 @@ class NamaaTTSService:
 
         def _generate():
             self._load()
+            import time as _time
             import numpy as np
+            import torch
             import wave as _wave
-            wav = self._model.generate(text, language_id="ar")
+
+            t0 = _time.time()
+            with torch.inference_mode():
+                wav = self._model.generate(text, language_id="ar")
+            gen_ms = (_time.time() - t0) * 1000
+
             pcm = wav.squeeze().cpu().numpy()
             pcm16 = np.clip(pcm * 32767, -32768, 32767).astype(np.int16)
             buf = io.BytesIO()
@@ -650,6 +657,7 @@ class NamaaTTSService:
                 wf.setsampwidth(2)
                 wf.setframerate(self._sr)
                 wf.writeframes(pcm16.tobytes())
+            logger.info("NAMAA generate | text_len=%d | %.0fms", len(text), gen_ms)
             return buf.getvalue()
 
         return await asyncio.to_thread(_generate)
