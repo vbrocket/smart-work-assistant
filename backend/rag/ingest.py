@@ -18,6 +18,8 @@ from .models import ChunkRecord
 from .table_extractor import TableExtractor
 from .vector_store import VectorStoreBase
 
+_CHARS_PER_TOKEN = 4
+
 logger = logging.getLogger("rag.ingest")
 
 
@@ -313,6 +315,16 @@ class IngestionPipeline:
                 if self._llm_provider and table_chunks:
                     n_enriched = await _enrich_all_tables(self._llm_provider, table_chunks)
                     logger.info("LLM-enriched %d/%d tables for %s", n_enriched, len(table_chunks), filename)
+
+                section_titles = self.chunker._build_section_title_map(
+                    self.chunker._extract_sections(pages)
+                )
+                for tc in table_chunks:
+                    header = self.chunker._build_context_header(
+                        tc.section_id, tc.table_title or tc.section_title, section_titles,
+                    )
+                    if header and not tc.text.startswith("["):
+                        tc.text = f"{header}\n{tc.text}"
 
                 all_records.extend(text_chunks)
                 all_records.extend(table_chunks)

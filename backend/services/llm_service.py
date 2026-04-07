@@ -104,6 +104,7 @@ class LLMService:
     
     SYSTEM_PROMPTS = {
         'en': """You are a Smart Work Assistant. You help the user manage their workday by answering questions about their emails, calendar, and tasks using ONLY the data provided below.
+/think Think briefly (8 sentences max) then answer directly. Do not write lengthy analysis.
 
 Rules:
 - Be direct and concise. Lead with what matters most.
@@ -114,6 +115,7 @@ Rules:
 Today: {date}""",
 
         'ar': """أنت مساعد العمل الذكي. تساعد المستخدم في إدارة يوم عمله بالإجابة على أسئلته حول البريد الإلكتروني والتقويم والمهام باستخدام البيانات المقدمة أدناه فقط.
+/think فكّر بإيجاز في 8 جمل كحد أقصى ثم أجب مباشرة. لا تكتب تحليلاً مطوّلاً.
 
 القواعد:
 - كن مباشراً وموجزاً. ابدأ بالأهم.
@@ -126,6 +128,7 @@ Today: {date}""",
 
     GENERAL_SYSTEM_PROMPTS = {
         'en': """You are a friendly and helpful AI assistant. You can chat about any topic, answer general knowledge questions, and have natural conversations.
+/think Think briefly (8 sentences max) then answer directly. Do not write lengthy analysis.
 
 Rules:
 - Be direct, concise, and helpful.
@@ -136,6 +139,7 @@ Rules:
 Today: {date}""",
 
         'ar': """أنت مساعد ذكي ودود. يمكنك الدردشة في أي موضوع والإجابة على الأسئلة العامة وإجراء محادثات طبيعية.
+/think فكّر بإيجاز في 8 جمل كحد أقصى ثم أجب مباشرة. لا تكتب تحليلاً مطوّلاً.
 
 القواعد:
 - كن مباشراً وموجزاً ومفيداً.

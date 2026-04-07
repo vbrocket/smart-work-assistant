@@ -30,8 +30,9 @@ class ChunkRecord(BaseModel):
     raw_table_text: str = ""
 
     def stable_id(self) -> str:
-        """Deterministic UUID derived from document + section + sub + row."""
-        key = f"{self.doc_id}|{self.section_id}|{self.sub_id}|{self.row_index}"
+        """Deterministic UUID derived from document + section + sub + row + text hash."""
+        text_hash = hashlib.md5(self.text[:200].encode()).hexdigest()[:8]
+        key = f"{self.doc_id}|{self.section_id}|{self.sub_id}|{self.row_index}|{text_hash}"
         return str(uuid.UUID(hashlib.md5(key.encode()).hexdigest()))
 
     def ensure_id(self) -> None:

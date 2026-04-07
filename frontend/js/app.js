@@ -982,18 +982,18 @@ const App = {
                 const needsExpand = c.text.length > 400;
                 const displayText = UI.escapeHtml(c.text);
 
-                return `<div class="chunk-card">
-                    <div class="chunk-card-header">
-                        <div class="chunk-meta">
-                            <span class="chunk-badge ${badge}">${badge.replace('_', ' ')}</span>
-                            ${section ? `<span class="chunk-section">${UI.escapeHtml(section)}</span>` : ''}
-                            ${title ? `<span class="chunk-section">${UI.escapeHtml(title)}</span>` : ''}
+                return `<div class="chunk-card" style="background:var(--bg-card,#fff);border:1px solid var(--border-color,#ccc);border-radius:10px;margin-bottom:8px;">
+                    <div class="chunk-card-header" style="padding:10px 14px;background:var(--bg-tertiary,#f0f0f0);border-bottom:1px solid var(--border-color,#ccc);">
+                        <div class="chunk-meta" style="display:flex;gap:8px;align-items:center;">
+                            <span class="chunk-badge ${badge}" style="padding:2px 8px;border-radius:12px;font-size:0.7rem;font-weight:600;">${badge.replace('_', ' ')}</span>
+                            ${section ? `<span class="chunk-section" style="color:var(--text-secondary,#666);font-size:0.78rem;">${UI.escapeHtml(section)}</span>` : ''}
+                            ${title ? `<span class="chunk-section" style="color:var(--text-secondary,#666);font-size:0.78rem;">${UI.escapeHtml(title)}</span>` : ''}
                         </div>
-                        <span class="chunk-page">${pageLabel}</span>
-                        <span class="chunk-id-text" title="${c.id}">${shortId}</span>
+                        <span class="chunk-page" style="font-size:0.72rem;color:var(--text-secondary,#999);">${pageLabel}</span>
+                        <span class="chunk-id-text" title="${c.id}" style="font-size:0.65rem;color:var(--text-secondary,#aaa);font-family:monospace;">${shortId}</span>
                     </div>
-                    <div class="chunk-card-body${needsExpand ? '' : ' expanded'}">${displayText}</div>
-                    ${needsExpand ? '<button class="chunk-expand-btn">Expand</button>' : ''}
+                    <div class="chunk-card-body${needsExpand ? '' : ' expanded'}" style="padding:12px 14px;font-size:0.85rem;line-height:1.6;color:var(--text-primary,#333);white-space:pre-wrap;word-wrap:break-word;direction:rtl;text-align:right;max-height:${needsExpand ? '200px' : 'none'};overflow-y:auto;">${displayText}</div>
+                    ${needsExpand ? '<button class="chunk-expand-btn" style="display:block;width:100%;padding:6px;border:none;background:var(--bg-tertiary,#f0f0f0);color:var(--primary-color,#4F008C);font-size:0.75rem;cursor:pointer;">Expand</button>' : ''}
                 </div>`;
             }).join('');
 

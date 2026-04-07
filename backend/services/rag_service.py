@@ -48,10 +48,14 @@ class RAGService:
 
         self._embedder = create_embedder()
 
-        try:
-            self._reranker = get_reranker(model_name=settings.reranker_model)
-        except Exception as e:
-            logger.warning("Reranker not available, running without reranking: %s", e)
+        if settings.reranker_backend and settings.reranker_backend.lower() != "none":
+            try:
+                self._reranker = get_reranker(model_name=settings.reranker_model)
+            except Exception as e:
+                logger.warning("Reranker not available, running without reranking: %s", e)
+                self._reranker = None
+        else:
+            logger.info("Reranker disabled (RERANKER_BACKEND=none or empty)")
             self._reranker = None
 
         self._retriever = HybridRetriever(

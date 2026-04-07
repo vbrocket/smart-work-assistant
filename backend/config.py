@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # vLLM local endpoints (used when *_BACKEND=vllm)
     vllm_llm_url: str = "http://localhost:8001/v1"
-    vllm_llm_model: str = "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4"
+    vllm_llm_model: str = "Qwen/Qwen3.5-27B"
     vllm_embed_url: str = "http://localhost:8002/v1"
     vllm_embed_model: str = "BAAI/bge-m3"
     vllm_rerank_url: str = "http://localhost:8003"
@@ -92,14 +92,15 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     # Retrieval tuning
-    rag_fusion_method: str = "rrf"
+    rag_fusion_method: str = "weighted"
     rag_dense_top_k: int = 30
     rag_bm25_top_k: int = 30
-    rag_rerank_top_k: int = 20
+    rag_rerank_top_k: int = 40
     rag_final_top_k: int = 10
 
-    # Thinking / reasoning budget (0 = disabled)
-    thinking_budget: int = 1024
+    # Thinking / reasoning budget — must be well below max_tokens so
+    # the model has room for the actual answer after reasoning.
+    thinking_budget: int = 4096
 
     # Chunking
     rag_chunk_max_tokens: int = 1100

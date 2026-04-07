@@ -189,13 +189,22 @@ class SectionChunker:
         """
         sections = self._extract_sections(pages)
         merged = self._merge_small_siblings(sections)
+
+        section_titles = self._build_section_title_map(sections)
+
         records: List[ChunkRecord] = []
 
         for sec in merged:
-            tok_est = _estimate_tokens(sec["text"])
+            header = self._build_context_header(
+                sec["section_id"], sec["section_title"], section_titles,
+            )
+            body = sec["text"]
+            contextualized = f"{header}\n{body}" if header else body
+
+            tok_est = _estimate_tokens(contextualized)
             if tok_est <= self.max_tokens:
                 rec = ChunkRecord(
-                    text=sec["text"],
+                    text=contextualized,
                     doc_id=doc_id,
                     doc_name=doc_name,
                     doc_version=doc_version,
@@ -210,14 +219,14 @@ class SectionChunker:
                 records.append(rec)
             else:
                 subs = _sub_split(
-                    sec["text"],
+                    body,
                     sec["section_id"],
-                    self.max_tokens,
+                    self.max_tokens - _estimate_tokens(header) - 5,
                     self.overlap_tokens,
                 )
                 for sub_letter, sub_text, span in subs:
                     rec = ChunkRecord(
-                        text=sub_text,
+                        text=f"{header}\n{sub_text}" if header else sub_text,
                         doc_id=doc_id,
                         doc_name=doc_name,
                         doc_version=doc_version,
@@ -238,6 +247,45 @@ class SectionChunker:
             len(pages), len(sections), len(merged), len(records), doc_name,
         )
         return records
+
+    @staticmethod
+    def _build_section_title_map(sections: List[dict]) -> dict:
+        """Collect section_id -> title from all sections before merging."""
+        title_map: dict = {}
+        for sec in sections:
+            sid = sec["section_id"]
+            title = sec.get("section_title", "")
+            if sid and title and sid != title:
+                title_map[sid] = title
+        return title_map
+
+    @staticmethod
+    def _build_context_header(
+        section_id: str,
+        section_title: str,
+        title_map: dict,
+    ) -> str:
+        """Build a breadcrumb header like: [القسم 1.3 | الإجازات > 1.3.1 | الإجازة السنوية]"""
+        if not section_id or not section_id[0].isdigit():
+            return ""
+
+        parts = section_id.split(".")
+        if len(parts) < 2:
+            return ""
+
+        breadcrumbs: List[str] = []
+        for depth in range(1, len(parts)):
+            ancestor_id = ".".join(parts[:depth])
+            ancestor_title = title_map.get(ancestor_id, "")
+            if ancestor_title:
+                breadcrumbs.append(f"{ancestor_id} {ancestor_title}")
+            else:
+                breadcrumbs.append(ancestor_id)
+
+        current_label = f"{section_id} {section_title}" if section_title and section_title != section_id else section_id
+        breadcrumbs.append(current_label)
+
+        return "[" + " > ".join(breadcrumbs) + "]"
 
     def _merge_small_siblings(self, sections: List[dict]) -> List[dict]:
         """Merge consecutive tiny sibling sections under the same parent.

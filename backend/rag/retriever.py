@@ -44,8 +44,8 @@ def reciprocal_rank_fusion(
 def weighted_merge(
     dense_hits: List[DocHit],
     bm25_hits: List[DocHit],
-    dense_weight: float = 0.6,
-    bm25_weight: float = 0.4,
+    dense_weight: float = 0.4,
+    bm25_weight: float = 0.6,
 ) -> List[DocHit]:
     """Merge two lists with normalised-score weighted combination."""
     def _normalize(hits: List[DocHit]) -> None:
@@ -94,7 +94,7 @@ class HybridRetriever:
         final_top_k: int = 8,
         fusion_method: str = "rrf",
         expand_context: bool = True,
-        max_context_chunks: int = 15,
+        max_context_chunks: int = 30,
     ):
         self.vector_store = vector_store
         self.bm25_store = bm25_store
@@ -134,6 +134,21 @@ class HybridRetriever:
             reranked = self.reranker.rerank(query, candidates, top_k=self.final_top_k)
         else:
             reranked = candidates[: self.final_top_k]
+
+        # 4b) BM25 rescue: ensure top BM25 hits are not dropped by the
+        # reranker, since lexical matches are often highly relevant for
+        # Arabic policy queries.
+        reranked_ids = {h.chunk_id for h in reranked}
+        bm25_rescue_budget = 3
+        for bm25_hit in bm25_hits[:5]:
+            if bm25_rescue_budget <= 0:
+                break
+            if bm25_hit.chunk_id not in reranked_ids:
+                bm25_hit.score = 0.001
+                reranked.append(bm25_hit)
+                reranked_ids.add(bm25_hit.chunk_id)
+                bm25_rescue_budget -= 1
+
         logger.debug(
             "Reranked top sids: %s",
             [(h.metadata.get("section_id", "?"), f"{h.score:.3f}") for h in reranked],
@@ -200,6 +215,18 @@ class HybridRetriever:
             reranked = self.reranker.rerank(query, candidates, top_k=self.final_top_k)
         else:
             reranked = candidates[: self.final_top_k]
+
+        # BM25 rescue (same as retrieve())
+        reranked_ids = {h.chunk_id for h in reranked}
+        bm25_rescue_budget = 3
+        for bm25_hit in bm25_hits[:5]:
+            if bm25_rescue_budget <= 0:
+                break
+            if bm25_hit.chunk_id not in reranked_ids:
+                bm25_hit.score = 0.001
+                reranked.append(bm25_hit)
+                reranked_ids.add(bm25_hit.chunk_id)
+                bm25_rescue_budget -= 1
         timings["rerank_ms"] = round((time.time() - t0) * 1000)
 
         t0 = time.time()
@@ -252,6 +279,8 @@ class HybridRetriever:
 
         sections_checked: set = set()
         for hit in hits:
+            if hit.score < 0:
+                continue
             meta = hit.metadata
             if meta.get("chunk_type", "").startswith("table"):
                 continue
@@ -260,10 +289,11 @@ class HybridRetriever:
             doc_id = meta.get("doc_id", "")
 
             lookups = set()
-            if sid and sid not in sections_checked:
+            sid_depth = len(sid.split(".")) if sid else 0
+            if sid and sid not in sections_checked and sid_depth >= 3:
                 lookups.add(sid)
             parent_depth = len(parent.split(".")) if parent else 0
-            if parent and parent_depth >= 2 and parent not in sections_checked:
+            if parent and parent_depth >= 3 and parent not in sections_checked:
                 lookups.add(parent)
 
             for lookup_id in lookups:
@@ -277,30 +307,40 @@ class HybridRetriever:
         pages_checked: set = set()
         hit_section_prefixes: set = set()
         for h in hits:
+            if h.score < 0:
+                continue
             sid = h.metadata.get("section_id", "")
             if sid:
                 parts = sid.split(".")
-                hit_section_prefixes.add(parts[0])
-                if len(parts) >= 2:
-                    hit_section_prefixes.add(".".join(parts[:2]))
+                if len(parts) >= 3:
+                    hit_section_prefixes.add(".".join(parts[:3]))
+        table_count = 0
+        max_tables = 3
         for hit in hits:
+            if table_count >= max_tables:
+                break
+            if hit.score < 0:
+                continue
             meta = hit.metadata
             page = meta.get("page_start", 0)
             doc_id = meta.get("doc_id", "")
             if page and page not in pages_checked:
                 pages_checked.add(page)
                 for tbl_hit in self.bm25_store.get_nearby_tables(page, doc_id=doc_id):
+                    if table_count >= max_tables:
+                        break
                     if tbl_hit.chunk_id in seen_ids:
                         continue
                     tbl_sid = tbl_hit.metadata.get("section_id", "")
                     if tbl_sid:
                         tbl_parts = tbl_sid.split(".")
-                        tbl_prefix = ".".join(tbl_parts[:2]) if len(tbl_parts) >= 2 else tbl_parts[0]
-                        if tbl_prefix not in hit_section_prefixes:
+                        tbl_prefix = ".".join(tbl_parts[:3]) if len(tbl_parts) >= 3 else ".".join(tbl_parts[:2]) if len(tbl_parts) >= 2 else ""
+                        if not tbl_prefix or tbl_prefix not in hit_section_prefixes:
                             continue
                     tbl_hit.score = -0.02
                     siblings_pool.append(tbl_hit)
                     seen_ids.add(tbl_hit.chunk_id)
+                    table_count += 1
 
         hit_pages = {h.metadata.get("page_start", 0) for h in hits}
 
@@ -313,7 +353,42 @@ class HybridRetriever:
         siblings_pool.sort(key=_sibling_sort_key)
 
         remaining_slots = max(0, self.max_context_chunks - len(hits))
-        selected_siblings = siblings_pool[:remaining_slots]
+
+        # Prioritize children of higher-scored reranked hits by giving each
+        # parent section a fair share of sibling slots.
+        selected_siblings: List[DocHit] = []
+        if remaining_slots > 0 and siblings_pool:
+            by_parent: dict[str, list[DocHit]] = {}
+            for sib in siblings_pool:
+                sid = sib.metadata.get("section_id", "")
+                parent = ".".join(sid.split(".")[:3]) if len(sid.split(".")) >= 3 else sid.split(".")[0]
+                by_parent.setdefault(parent, []).append(sib)
+
+            hit_scores: dict[str, float] = {}
+            for h in hits:
+                sid = h.metadata.get("section_id", "")
+                parent = ".".join(sid.split(".")[:3]) if len(sid.split(".")) >= 3 else sid.split(".")[0]
+                hit_scores[parent] = max(hit_scores.get(parent, 0), h.score)
+
+            parents_ordered = sorted(by_parent.keys(), key=lambda p: hit_scores.get(p, 0), reverse=True)
+            per_parent = max(5, remaining_slots // max(len(parents_ordered), 1))
+            seen_selected: set = set()
+            for parent in parents_ordered:
+                for sib in by_parent[parent][:per_parent]:
+                    if len(selected_siblings) >= remaining_slots:
+                        break
+                    if sib.chunk_id not in seen_selected:
+                        selected_siblings.append(sib)
+                        seen_selected.add(sib.chunk_id)
+                if len(selected_siblings) >= remaining_slots:
+                    break
+            # Fill any remaining slots from leftover siblings
+            for sib in siblings_pool:
+                if len(selected_siblings) >= remaining_slots:
+                    break
+                if sib.chunk_id not in seen_selected:
+                    selected_siblings.append(sib)
+                    seen_selected.add(sib.chunk_id)
 
         combined = list(hits) + selected_siblings
         combined.sort(key=lambda h: self._section_parts(h.metadata.get("section_id", "")))
