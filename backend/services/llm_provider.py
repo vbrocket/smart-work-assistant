@@ -465,10 +465,15 @@ class VLLMProvider(LLMProvider):
 
         With --reasoning-parser qwen3, thinking is enabled by default.
         We only need chat_template_kwargs to *disable* it.
+        When thinking is enabled, enforce a hard token budget so the
+        model cannot run away with unlimited reasoning.
         """
         body: dict = {}
         if not thinking:
             body["chat_template_kwargs"] = {"enable_thinking": False}
+        else:
+            from config import get_settings
+            body["thinking_token_budget"] = get_settings().thinking_budget
         return body
 
     async def chat(

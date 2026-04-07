@@ -113,10 +113,10 @@ class RAGService:
 
     # ── Grounded QA ────────────────────────────────────────────────
 
-    async def answer(self, question: str) -> QAResponse:
+    async def answer(self, question: str, conversation_history=None) -> QAResponse:
         """Full pipeline: retrieve + grounded QA."""
         hits, debug = await self._retriever.retrieve(question)
-        return await self._qa.answer(question, hits, debug)
+        return await self._qa.answer(question, hits, debug, conversation_history=conversation_history)
 
     async def query_trace(self, question: str) -> tuple[QAResponse, RetrievalTrace]:
         """Full pipeline with detailed retrieval trace for the debug UI."""

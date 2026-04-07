@@ -280,7 +280,7 @@ async def _handle_policy_qa(
         llm_service.update_employee_profile(extracted)
 
     try:
-        qa_result = await rag_service.answer(message)
+        qa_result = await rag_service.answer(message, conversation_history=llm_service.conversation_history)
     except Exception as e:
         logger.error("Grounded QA failed (exception), falling back to general chat: %s", e, exc_info=True)
         return await llm_service.chat(message=message, language=language)
@@ -308,6 +308,11 @@ async def _handle_policy_qa(
             if c.quote:
                 ref += f': "{c.quote}"'
             answer += ref
+
+    llm_service.conversation_history.append({"role": "user", "content": message})
+    llm_service.conversation_history.append({"role": "assistant", "content": answer})
+    if len(llm_service.conversation_history) > llm_service.max_history * 2:
+        llm_service.conversation_history = llm_service.conversation_history[-llm_service.max_history * 2:]
 
     return answer
 
@@ -406,7 +411,8 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
                 qa = rag_service.qa_engine
 
                 async for evt in qa.answer_stream(request.message, hits, debug_info,
-                                                   voice_mode=voice_mode):
+                                                   voice_mode=voice_mode,
+                                                   conversation_history=llm_service.conversation_history):
                     if evt["type"] == "token":
                         for etype, econtent in _filter_think(evt["content"]):
                             if etype == "token":
@@ -452,6 +458,13 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
                         if etype == "token":
                             full_response += econtent
                         yield _sse_event({"type": etype, "content": econtent})
+
+            # Append policy QA turns to conversation history so follow-ups work
+            if decision.intent == ROUTE_POLICY_QA and full_response:
+                llm_service.conversation_history.append({"role": "user", "content": request.message})
+                llm_service.conversation_history.append({"role": "assistant", "content": full_response})
+                if len(llm_service.conversation_history) > llm_service.max_history * 2:
+                    llm_service.conversation_history = llm_service.conversation_history[-llm_service.max_history * 2:]
 
             resp_lang = llm_service.detect_language(full_response) if full_response else language
             yield _sse_event({"type": "done", "full_response": full_response, "language": resp_lang})

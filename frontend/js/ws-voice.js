@@ -27,8 +27,8 @@ const WSVoice = {
     silenceDetectionInterval: null,
     silenceStartTime: null,
     silenceThreshold: 0.01,
-    silenceDuration: 1.5,
-    maxRecordingTime: 15000,
+    silenceDuration: 1,
+    maxRecordingTime: 25000,
     maxRecordingTimeout: null,
     _silenceTriggered: false,
 

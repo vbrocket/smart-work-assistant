@@ -282,7 +282,8 @@ class _VoiceSession:
             qa = rag_service.qa_engine
             raw_tokens = ""
             async for evt in qa.answer_stream(
-                transcript, hits, debug_info, voice_mode=self.voice_mode
+                transcript, hits, debug_info, voice_mode=self.voice_mode,
+                conversation_history=llm_service.conversation_history,
             ):
                 if self.cancelled:
                     break
@@ -350,6 +351,12 @@ class _VoiceSession:
         if token_buffer.strip() and self.voice_mode and not self.cancelled:
             await flush_sentence(token_buffer)
             token_buffer = ""
+
+        if decision.intent == ROUTE_POLICY_QA and full_response:
+            llm_service.conversation_history.append({"role": "user", "content": transcript})
+            llm_service.conversation_history.append({"role": "assistant", "content": full_response})
+            if len(llm_service.conversation_history) > llm_service.max_history * 2:
+                llm_service.conversation_history = llm_service.conversation_history[-llm_service.max_history * 2:]
 
         if not self.cancelled:
             await _safe_send_json(

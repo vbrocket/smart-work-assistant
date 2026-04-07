@@ -175,6 +175,7 @@ class QAEngine:
         hits: List[DocHit],
         debug: Optional[RetrievalDebug] = None,
         voice_mode: bool = False,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> QAResponse:
         """Generate a grounded answer from retrieved hits."""
         if not hits:
@@ -191,8 +192,9 @@ class QAEngine:
 
         user_msg = f"السؤال: {question}"
 
-        logger.info("QA calling LLM | hits=%d | context_chars=%d | voice=%s", len(hits), len(context), voice_mode)
-        raw = await self._call_llm(system_prompt, user_msg)
+        logger.info("QA calling LLM | hits=%d | context_chars=%d | voice=%s | history=%d",
+                     len(hits), len(context), voice_mode, len(conversation_history or []))
+        raw = await self._call_llm(system_prompt, user_msg, conversation_history)
         logger.info("QA LLM raw response length: %d", len(raw))
 
         if voice_mode:
@@ -223,6 +225,7 @@ class QAEngine:
         hits: List[DocHit],
         debug: Optional[RetrievalDebug] = None,
         voice_mode: bool = False,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """Stream the QA answer token-by-token, then emit a metadata event.
 
@@ -249,15 +252,17 @@ class QAEngine:
         system_prompt = base + context
         user_msg = f"السؤال: {question}"
 
-        logger.info("QA stream | hits=%d | context_chars=%d | voice=%s",
-                     len(hits), len(context), voice_mode)
+        history = list((conversation_history or [])[-8:])
+        logger.info("QA stream | hits=%d | context_chars=%d | voice=%s | history=%d",
+                     len(hits), len(context), voice_mode, len(history))
+
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages.extend(history)
+        messages.append({"role": "user", "content": user_msg})
 
         full = ""
         async for token in self.provider.chat_stream(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_msg},
-            ],
+            messages=messages,
             temperature=0.0,
             max_tokens=8192,
             enable_thinking=True,
@@ -272,12 +277,18 @@ class QAEngine:
             "answer_ar": full.strip(),
         }
 
-    async def _call_llm(self, system: str, user: str) -> str:
+    async def _call_llm(
+        self,
+        system: str,
+        user: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        history = list((conversation_history or [])[-8:])
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
+        messages.extend(history)
+        messages.append({"role": "user", "content": user})
         return await self.provider.chat(
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            messages=messages,
             temperature=0.0,
             max_tokens=8192,
             enable_thinking=True,

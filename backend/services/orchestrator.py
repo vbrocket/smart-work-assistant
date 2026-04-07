@@ -106,7 +106,8 @@ async def _llm_route(
         )
 
         import re as _re
-        _raw_content = response.choices[0].message.content or ""
+        _msg = response.choices[0].message
+        _raw_content = _msg.content or getattr(_msg, "reasoning", None) or ""
         _raw_content = _re.sub(r"<think>[\s\S]*?</think>\s*", "", _raw_content)
         raw = _raw_content.strip().lower()
         for token in raw.replace("\n", " ").split():
@@ -563,22 +564,31 @@ class OrchestratorService:
         if decision is None:
             decision = _keyword_route(message)
 
-        # Sticky intent: if the current message is a short follow-up and
-        # the previous turn was workspace or policy_qa, inherit that intent
+        # Sticky intent: if the router returned general but the previous
+        # turn was workspace or policy_qa, check if this looks like a follow-up.
+        # Two cases: (a) very short follow-up phrases, (b) short contextual
+        # question that only makes sense as a continuation (< 60 chars, no
+        # greeting words like مرحبا/السلام).
         if (
             decision.intent == ROUTE_GENERAL
             and self.last_intent in (ROUTE_WORKSPACE, ROUTE_POLICY_QA)
-            and _FOLLOW_UP_RE.match(message.strip())
         ):
-            logger.info(
-                "Sticky intent override: general -> %s (follow-up detected: '%s')",
-                self.last_intent, message.strip()[:40],
+            _msg = message.strip()
+            _is_short_followup = _FOLLOW_UP_RE.match(_msg)
+            _is_contextual = (
+                len(_msg) < 60
+                and not re.search(r"مرحبا|السلام|هلا|هاي|\bhello\b|\bhi\b", _msg, re.IGNORECASE)
             )
-            decision = RouteDecision(
-                intent=self.last_intent,
-                confidence=0.85,
-                reasoning=f"sticky follow-up (prev={self.last_intent})",
-            )
+            if _is_short_followup or _is_contextual:
+                logger.info(
+                    "Sticky intent override: general -> %s (follow-up detected: '%s')",
+                    self.last_intent, _msg[:40],
+                )
+                decision = RouteDecision(
+                    intent=self.last_intent,
+                    confidence=0.85,
+                    reasoning=f"sticky follow-up (prev={self.last_intent})",
+                )
 
         # Post-routing guard: don't route to policy_qa if no docs are indexed
         if decision.intent == ROUTE_POLICY_QA and not has_policy_docs:

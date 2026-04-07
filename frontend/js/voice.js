@@ -13,7 +13,7 @@ const Voice = {
     silenceThreshold: 0.01,
     currentStream: null,
     currentAudio: null, // Reference to currently playing Audio element for cancellation
-    maxRecordingTime: 15000,
+    maxRecordingTime: 25000,
     maxRecordingTimeout: null,
     
     /**
@@ -436,7 +436,7 @@ const Voice = {
      * @param {Function} onSilence - Callback when silence is detected
      * @param {number} silenceDuration - How long silence should last before triggering (seconds)
      */
-    async startRecordingWithSilenceDetection(onSilence, silenceDuration = 1.5) {
+    async startRecordingWithSilenceDetection(onSilence, silenceDuration = 1) {
         this.onSilenceCallback = onSilence;
         this._silenceTriggered = false;
         
