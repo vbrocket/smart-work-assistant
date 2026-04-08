@@ -381,10 +381,25 @@ Be concise (3-5 sentences). Use specific names, times, and subjects.
         messages.append({"role": "user", "content": message})
         _log_messages("chat_stream", messages)
 
+        # #region agent log
+        import time as _time_mod; _dbg_cs_start = _time_mod.time()
+        try:
+            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H2","location":"llm_service.py:chat_stream","message":"general chat_stream start","data":{"voice_mode":voice_mode,"history_len":len(self.conversation_history),"max_tokens":"default(4096)","enable_thinking":"default(None)"},"timestamp":int(_time_mod.time()*1000)}) + "\n")
+        except Exception: pass
+        # #endregion
+
         full = ""
         async for token in self.provider.chat_stream(messages, temperature=0.7, top_p=0.9):
             full += token
             yield token
+
+        # #region agent log
+        try:
+            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H2","location":"llm_service.py:chat_stream_end","message":"general chat_stream done","data":{"voice_mode":voice_mode,"answer_len":len(full),"elapsed_s":round(_time_mod.time()-_dbg_cs_start,2)},"timestamp":int(_time_mod.time()*1000)}) + "\n")
+        except Exception: pass
+        # #endregion
 
         self.conversation_history.append({"role": "user", "content": message})
         self.conversation_history.append({"role": "assistant", "content": full})

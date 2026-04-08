@@ -2,7 +2,7 @@
  * UI Service - Handles UI components and interactions
  */
 const UI = {
-    currentLanguage: 'en',
+    currentLanguage: 'ar',
     
     // Internationalization strings
     i18n: {
@@ -209,7 +209,7 @@ const UI = {
      */
     init() {
         // Load saved language preference
-        const savedLang = localStorage.getItem('language') || 'en';
+        const savedLang = localStorage.getItem('language') || 'ar';
         this.setLanguage(savedLang);
         
         // Set current date in summary

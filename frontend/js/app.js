@@ -175,15 +175,13 @@ const App = {
             this.sendMessage();
         });
         
-        // Voice button
-        document.getElementById('voiceBtn').addEventListener('click', () => {
-            this.startVoiceInput();
-        });
-        
-        // Stop recording button
-        document.getElementById('stopRecording').addEventListener('click', () => {
-            this.stopVoiceInput();
-        });
+        // Stop recording button (voice modal fallback)
+        const stopRecBtn = document.getElementById('stopRecording');
+        if (stopRecBtn) {
+            stopRecBtn.addEventListener('click', () => {
+                this.stopVoiceInput();
+            });
+        }
         
         // Connect Outlook button
         document.getElementById('connectOutlook').addEventListener('click', () => {
@@ -594,7 +592,7 @@ const App = {
                 };
                 WSVoice.callbacks.onTranscript = (text) => {
                     UI.hideVoiceModal();
-                    document.getElementById('voiceBtn').classList.remove('recording');
+                    document.getElementById('voiceBtn')?.classList.remove('recording');
                     if (text && text.trim()) {
                         document.getElementById('chatInput').value = text.trim();
                         this.sendMessage();
@@ -604,7 +602,7 @@ const App = {
                 WSVoice.callbacks.onDone = () => {};
                 WSVoice.callbacks.onError = (msg) => {
                     UI.hideVoiceModal();
-                    document.getElementById('voiceBtn').classList.remove('recording');
+                    document.getElementById('voiceBtn')?.classList.remove('recording');
                     UI.showToast(msg, 'error');
                     this._clearVoiceInputWSCallbacks();
                 };
@@ -612,13 +610,13 @@ const App = {
                 await WSVoice.startListening();
                 UI.showVoiceModal();
                 UI.setVoiceStatus('listening');
-                document.getElementById('voiceBtn').classList.add('recording');
+                document.getElementById('voiceBtn')?.classList.add('recording');
             } else {
                 this._voiceInputViaWS = false;
                 await Voice.startRecording();
                 UI.showVoiceModal();
                 UI.setVoiceStatus('listening');
-                document.getElementById('voiceBtn').classList.add('recording');
+                document.getElementById('voiceBtn')?.classList.add('recording');
             }
         } catch (error) {
             UI.showToast(error.message, 'error');
@@ -640,7 +638,7 @@ const App = {
     async stopVoiceInput() {
         if (this._voiceInputViaWS && this._useWSVoice()) {
             UI.setVoiceStatus('processing');
-            document.getElementById('voiceBtn').classList.remove('recording');
+            document.getElementById('voiceBtn')?.classList.remove('recording');
             WSVoice.stopListening();
             return;
         }
@@ -648,7 +646,7 @@ const App = {
         try {
             UI.setVoiceStatus('processing');
             const audioBlob = await Voice.stopRecording();
-            document.getElementById('voiceBtn').classList.remove('recording');
+            document.getElementById('voiceBtn')?.classList.remove('recording');
             const transcription = await Voice.transcribe(audioBlob, UI.currentLanguage);
             UI.hideVoiceModal();
             
@@ -658,7 +656,7 @@ const App = {
             }
         } catch (error) {
             UI.hideVoiceModal();
-            document.getElementById('voiceBtn').classList.remove('recording');
+            document.getElementById('voiceBtn')?.classList.remove('recording');
             UI.showToast(error.message, 'error');
         }
     },

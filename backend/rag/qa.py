@@ -260,6 +260,14 @@ class QAEngine:
         messages.extend(history)
         messages.append({"role": "user", "content": user_msg})
 
+        # #region agent log
+        import time as _time_mod; _dbg_start = _time_mod.time()
+        try:
+            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H3,H4","location":"qa.py:answer_stream","message":"QA stream start","data":{"voice_mode":voice_mode,"history_len":len(history),"context_chars":len(context),"max_tokens":8192,"enable_thinking":True,"system_prompt_len":len(system_prompt)},"timestamp":int(_time_mod.time()*1000)}) + "\n")
+        except Exception: pass
+        # #endregion
+
         full = ""
         async for token in self.provider.chat_stream(
             messages=messages,
@@ -269,6 +277,13 @@ class QAEngine:
         ):
             full += token
             yield {"type": "token", "content": token}
+
+        # #region agent log
+        try:
+            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H3,H4","location":"qa.py:answer_stream_end","message":"QA stream done","data":{"voice_mode":voice_mode,"answer_len":len(full),"elapsed_s":round(_time_mod.time()-_dbg_start,2)},"timestamp":int(_time_mod.time()*1000)}) + "\n")
+        except Exception: pass
+        # #endregion
 
         yield {
             "type": "meta",

@@ -358,6 +358,14 @@ class _VoiceSession:
             if len(llm_service.conversation_history) > llm_service.max_history * 2:
                 llm_service.conversation_history = llm_service.conversation_history[-llm_service.max_history * 2:]
 
+        # #region agent log
+        try:
+            import time as _time_mod
+            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H2,H3","location":"ws_voice.py:pipeline_done","message":"WS pipeline final response","data":{"intent":decision.intent,"voice_mode":self.voice_mode,"response_len":len(full_response),"response_preview":full_response[:200]},"timestamp":int(_time_mod.time()*1000)}) + "\n")
+        except Exception: pass
+        # #endregion
+
         if not self.cancelled:
             await _safe_send_json(
                 ws, {"type": "done", "full_response": full_response}

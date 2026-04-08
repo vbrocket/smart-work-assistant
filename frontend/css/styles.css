@@ -652,9 +652,9 @@ body {
     gap: 8px;
 }
 
-/* Hands-Free Main Button */
+/* Hands-Free Main Button (legacy, kept for compat) */
 .handsfree-main-btn {
-    display: flex;
+    display: none;
     align-items: center;
     gap: 6px;
     padding: 12px 16px;
