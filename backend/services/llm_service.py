@@ -153,27 +153,19 @@ Today: {date}""",
     VOICE_ADDON = {
         'en': """
 
-IMPORTANT – Voice Output Mode:
-Your response will be read aloud by a text-to-speech engine. You MUST follow these rules:
-- Write in plain, natural conversational sentences only.
-- Do NOT use any markdown formatting (no **, no ##, no -, no *, no ```, no links).
-- Do NOT use bullet points, numbered lists, or tables.
-- Do NOT output JSON, code, or any structured data format.
-- Spell out numbers naturally (e.g. "three thousand five hundred" not "3,500").
-- Keep the response concise (3-6 sentences) and easy to follow when heard, not read.
-- Use connecting words and flow like natural spoken language.""",
+Voice mode – answer will be read aloud. Rules:
+- Two to four sentences MAX. Answer only what was asked.
+- No markdown, no lists, no JSON, no code, no extra details.
+- Spell out numbers naturally.
+- Natural spoken tone.""",
 
         'ar': """
 
-مهم جداً – وضع الإخراج الصوتي:
-سيتم قراءة إجابتك بصوت عالٍ عبر محرك تحويل النص إلى كلام. يجب عليك اتباع هذه القواعد:
-- اكتب بجمل محادثة طبيعية وسلسة فقط.
-- لا تستخدم أي تنسيق ماركداون (لا نجوم، لا عناوين، لا شرطات، لا أقواس، لا أكواد).
-- لا تستخدم قوائم نقطية أو مرقمة أو جداول.
-- لا تُخرج JSON أو كود أو أي تنسيق بيانات منظم.
-- اكتب الأرقام بالكلمات بشكل طبيعي (مثلاً "ثلاثة آلاف وخمسمئة" وليس "3,500").
-- اجعل الإجابة مختصرة (ثلاث إلى ست جمل) وسهلة الفهم عند السماع.
-- استخدم أدوات ربط وأسلوب كلام طبيعي سلس."""
+وضع صوتي – ستُقرأ إجابتك بصوت عالٍ. القواعد:
+- جملتان إلى أربع جمل كحد أقصى. أجب فقط عما سُئلت عنه بدون مقدمات أو تفاصيل إضافية.
+- لا تنسيق، لا قوائم، لا JSON، لا أكواد.
+- اكتب الأرقام بالكلمات.
+- أسلوب كلام طبيعي سلس."""
     }
     
     # Prompt templates for specific tasks

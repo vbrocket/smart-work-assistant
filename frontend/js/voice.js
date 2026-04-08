@@ -274,6 +274,9 @@ const Voice = {
     cleanForTTS(text) {
         let t = text;
         t = t.replace(/<think>[\s\S]*?<\/think>/g, '');
+        t = t.replace(/<think>[\s\S]*/g, '');
+        t = t.replace(/[\s\S]*<\/think>/g, '');
+        t = t.replace(/<\/?think>/g, '');
         t = t.replace(/```[\s\S]*?```/g, '');
         t = t.replace(/`([^`]+)`/g, '$1');
         t = t.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1');
@@ -316,6 +319,8 @@ const Voice = {
         let doneResolve = null;
         let flushed = false;
         let spokenAnything = false;
+        let inThinking = false;
+        let thinkBuf = '';
         const donePromise = new Promise(r => { doneResolve = r; });
 
         function prefetch(text) {
@@ -355,16 +360,69 @@ const Voice = {
             if (!cancelled) drain();
         }
 
+        let _leakCont = false;
+        function isReasoningLeak(text) {
+            const stripped = text.trim();
+            if (!stripped || stripped.length < 3) return true;
+            const alpha = [...stripped].filter(c => /\p{L}/u.test(c));
+            if (alpha.length === 0) return true;
+            const latin = alpha.filter(c => /[a-zA-Z]/.test(c)).length;
+            if ((latin / alpha.length) > 0.40) { _leakCont = true; return true; }
+            const low = stripped.toLowerCase();
+            const structPats = [/^\s*\*\s/, /^\s*\d+\.\s/, /\s*->\s/, /^\s*-\s/,
+                /\(yes\)/i, /\(no\)/i, /\(n\/a\)/i, /\(found\)/i];
+            if (structPats.some(p => p.test(low))) { _leakCont = true; return true; }
+            const engMarkers = ['context [', 'but wait', 'let me', 'i need to',
+                'step ', 'check ', 'wait,', 'hmm', 'constraint',
+                'draft:', 'review:', 'says "', 'instruction '];
+            if (engMarkers.some(m => low.includes(m))) { _leakCont = true; return true; }
+            if (/\([A-Za-z][A-Za-z ]{3,}\)/.test(stripped)) { _leakCont = true; return true; }
+            if (_leakCont) {
+                if (stripped.startsWith('"') || stripped.startsWith('\u201c') || /^\s*\*\s/.test(stripped))
+                    return true;
+                _leakCont = false;
+            }
+            return false;
+        }
+
         function enqueue(raw) {
             const clean = self.cleanForTTS(raw);
             if (!clean || clean.length < 3) return;
+            if (isReasoningLeak(clean)) return;
             prefetch(clean);
         }
 
         return {
             feedToken(token) {
                 if (cancelled) return;
-                buffer += token;
+
+                thinkBuf += token;
+                let text = '';
+
+                while (thinkBuf.length > 0) {
+                    if (inThinking) {
+                        const endIdx = thinkBuf.indexOf('</think>');
+                        if (endIdx === -1) {
+                            thinkBuf = '';
+                            break;
+                        }
+                        thinkBuf = thinkBuf.slice(endIdx + 8);
+                        inThinking = false;
+                    } else {
+                        const startIdx = thinkBuf.indexOf('<think>');
+                        if (startIdx === -1) {
+                            text += thinkBuf;
+                            thinkBuf = '';
+                        } else {
+                            text += thinkBuf.slice(0, startIdx);
+                            thinkBuf = thinkBuf.slice(startIdx + 7);
+                            inThinking = true;
+                        }
+                    }
+                }
+
+                if (!text) return;
+                buffer += text;
                 let idx = buffer.search(SENTENCE_RE);
                 while (idx >= 0 && buffer.length >= MIN_CHARS) {
                     const sentence = buffer.slice(0, idx + 1);

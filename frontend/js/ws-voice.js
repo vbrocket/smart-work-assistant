@@ -38,6 +38,7 @@ const WSVoice = {
     _audioQueue: [],
     _audioPlaying: false,
     _ttsResolve: null,
+    _clientResponse: '',
 
     callbacks: {
         onPartialTranscript: null,
@@ -137,6 +138,7 @@ const WSVoice = {
         this.sendConfig();
         this._audioQueue = [];
         this._audioPlaying = false;
+        this._clientResponse = '';
         this._silenceTriggered = false;
 
         try {
@@ -334,6 +336,7 @@ const WSVoice = {
                 this.callbacks.onRoute?.(msg.intent);
                 break;
             case 'token':
+                this._clientResponse += (msg.content || '');
                 this.callbacks.onToken?.(msg.content);
                 break;
             case 'thinking_start':
@@ -355,11 +358,13 @@ const WSVoice = {
                 break;
             case 'clear':
                 console.log('[WSVoice] <<< clear');
+                this._clientResponse = '';
                 this.callbacks.onClear?.();
                 break;
             case 'done':
-                console.log('[WSVoice] <<< done | response length:', msg.full_response?.length || 0);
-                this.callbacks.onDone?.(msg.full_response);
+                console.log('[WSVoice] <<< done | client response length:', this._clientResponse.length);
+                this.callbacks.onDone?.(this._clientResponse);
+                this._clientResponse = '';
                 this._finishAudioQueue();
                 break;
             case 'error':
@@ -444,6 +449,16 @@ const WSVoice = {
 
     _cancelAudio() {
         this._audioQueue = [];
+        if (this._ttsAudioEl) {
+            this._ttsAudioEl.pause();
+            this._ttsAudioEl.currentTime = 0;
+            if (this._ttsAudioEl.src && this._ttsAudioEl.src.startsWith('blob:')) {
+                URL.revokeObjectURL(this._ttsAudioEl.src);
+            }
+        }
+        this._audioPlaying = false;
+        this._ttsResolve?.();
+        this._ttsResolve = null;
     },
 
     _finishAudioQueue() {

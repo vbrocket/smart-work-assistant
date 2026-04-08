@@ -63,6 +63,7 @@ const UI = {
             'handsfree.processing': 'Processing...',
             'handsfree.thinking': 'Thinking...',
             'handsfree.speaking': 'Speaking...',
+            'handsfree.stopSpeaking': 'Stop',
             'handsfree.error': 'Error occurred',
             'handsfree.exit': 'Exit',
             'handsfree.hint': 'Say "exit" or "stop" to end',
@@ -162,6 +163,7 @@ const UI = {
             'handsfree.processing': 'جارٍ المعالجة...',
             'handsfree.thinking': 'جارٍ التفكير...',
             'handsfree.speaking': 'جارٍ التحدث...',
+            'handsfree.stopSpeaking': 'إيقاف',
             'handsfree.error': 'حدث خطأ',
             'handsfree.exit': 'خروج',
             'handsfree.hint': 'قل "توقف" أو "خروج" للإنهاء',
@@ -1005,6 +1007,7 @@ const UI = {
     setHandsFreeStatus(status, customText) {
         const statusEl = document.getElementById('handsFreeStatus');
         const micIcon = document.querySelector('.handsfree-mic');
+        const stopBtn = document.getElementById('stopSpeaking');
 
         if (statusEl) {
             statusEl.textContent = customText || this.t(`handsfree.${status}`) || status;
@@ -1013,6 +1016,10 @@ const UI = {
         if (micIcon) {
             micIcon.classList.remove('listening', 'processing', 'thinking', 'speaking', 'error');
             micIcon.classList.add(status);
+        }
+
+        if (stopBtn) {
+            stopBtn.style.display = status === 'speaking' ? '' : 'none';
         }
     },
     

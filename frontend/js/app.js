@@ -262,6 +262,14 @@ const App = {
                 this.playLastRecording();
             });
         }
+
+        // Stop speaking button in hands-free mode
+        const stopSpeakingBtn = document.getElementById('stopSpeaking');
+        if (stopSpeakingBtn) {
+            stopSpeakingBtn.addEventListener('click', () => {
+                this.stopHandsFreeSpeaking();
+            });
+        }
         
         // Calendar: refresh
         const refreshCalBtn = document.getElementById('refreshCalendar');
@@ -1202,6 +1210,21 @@ const App = {
         UI.hideHandsFreeOverlay();
         
         console.log('Exited hands-free mode');
+    },
+
+    /**
+     * Stop TTS playback and resume listening in hands-free mode.
+     */
+    stopHandsFreeSpeaking() {
+        if (this._useWSVoice()) {
+            WSVoice._cancelAudio();
+        }
+        Voice.cancelSpeech();
+
+        if (this.isHandsFreeMode) {
+            UI.setHandsFreeStatus('listening');
+            setTimeout(() => this.startHandsFreeListening(), 300);
+        }
     },
 
     /**

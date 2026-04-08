@@ -197,7 +197,15 @@ class _VoiceSession:
         async def _send_token(ws, tok: str):
             """Send token, filtering <think> blocks: thinking tokens go as
             type=thinking (not sent to TTS), normal tokens as type=token."""
-            nonlocal _in_think, _think_buf, full_response
+            nonlocal _in_think, _think_buf, full_response, token_buffer
+
+            # #region agent log
+            try:
+                with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                    import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H3","location":"ws_voice.py:_send_token","message":"token received","data":{"tok_len":len(tok),"tok_preview":tok[:120],"in_think":_in_think,"has_think_open":"<think>" in tok,"has_think_close":"</think>" in tok},"timestamp":int(__import__('time').time()*1000)}) + "\n")
+            except Exception: pass
+            # #endregion
+
             i = 0
             while i < len(tok):
                 if not _in_think:
@@ -214,6 +222,9 @@ class _VoiceSession:
                             full_response += before
                             await _safe_send_json(ws, {"type": "token", "content": before})
                             await drain_tokens(before)
+                        if token_buffer.strip() and self.voice_mode:
+                            await flush_sentence(token_buffer)
+                        token_buffer = ""
                         _in_think = True
                         _think_buf = ""
                         await _safe_send_json(ws, {"type": "thinking_start"})
@@ -230,14 +241,101 @@ class _VoiceSession:
                             _think_buf += chunk
                             await _safe_send_json(ws, {"type": "thinking", "content": chunk})
                         _in_think = False
+                        token_buffer = ""
                         await _safe_send_json(ws, {"type": "thinking_end"})
                         i = end + len("</think>")
 
+        _leak_continuation = False
+
+        def _is_reasoning_leak(text: str) -> bool:
+            """Detect analytical/reasoning text that shouldn't be spoken.
+            Uses structural patterns (bullet points, arrows, numbered lists,
+            constraint checklists) rather than content analysis, since the
+            answer language is Arabic and Latin-ratio checks are unreliable
+            for mixed-language policy documents.
+            """
+            nonlocal _leak_continuation
+            stripped = text.strip()
+            if not stripped or len(stripped) < 3:
+                return True
+
+            import re as _rleak
+
+            alpha = [c for c in stripped if c.isalpha()]
+            if not alpha:
+                return True
+            latin = sum(1 for c in alpha if c.isascii())
+            ratio = latin / len(alpha)
+            if ratio > 0.40:
+                _leak_continuation = True
+                return True
+
+            _struct = [
+                r'^\s*\*\s',
+                r'^\s*\d+\.\s',
+                r'\s*->\s',
+                r'^\s*-\s',
+                r'\(yes\)', r'\(no\)', r'\(n/a\)', r'\(found\)',
+            ]
+            low = stripped.lower()
+            for pat in _struct:
+                if _rleak.search(pat, low):
+                    _leak_continuation = True
+                    return True
+
+            _eng_markers = [
+                "context [", "but wait", "let me", "i need to",
+                "step ", "check ", "wait,", "hmm",
+                "constraint", "draft:", "review:",
+                'says "', "instruction ",
+            ]
+            if sum(1 for m in _eng_markers if m in low) >= 1:
+                _leak_continuation = True
+                return True
+
+            if _rleak.search(r'\([A-Za-z][A-Za-z ]{3,}\)', stripped):
+                _leak_continuation = True
+                return True
+
+            if _leak_continuation:
+                if stripped.startswith('"') or stripped.startswith('\u201c'):
+                    return True
+                if _rleak.search(r'^\s*\*\s', stripped):
+                    return True
+                _leak_continuation = False
+
+            return False
+
         async def flush_sentence(sentence: str):
             """Synthesise one sentence and push as binary frame."""
+            import re as _re
             nonlocal full_response
-            clean = sentence.strip()
+            clean = _re.sub(r"<think>[\s\S]*?</think>", "", sentence)
+            clean = _re.sub(r"<think>[\s\S]*", "", clean)
+            clean = _re.sub(r"[\s\S]*</think>", "", clean)
+            clean = _re.sub(r"</?think>", "", clean)
+            clean = clean.strip()
             if not clean or len(clean) < 3:
+                return
+            # #region agent log
+            _alpha = [c for c in clean if c.isalpha()]
+            _latin = sum(1 for c in _alpha if c.isascii()) if _alpha else 0
+            _latin_ratio = round(_latin / len(_alpha), 2) if _alpha else 0
+            _low = clean.lower()
+            import re as _rl2
+            _struct_pats = [r'^\s*\*\s', r'^\s*\d+\.\s', r'\s*->\s', r'^\s*-\s', r'\(yes\)', r'\(no\)', r'\(n/a\)', r'\(found\)']
+            _struct_found = [p for p in _struct_pats if _rl2.search(p, _low)]
+            _eng_m = ["context [", "but wait", "let me", "i need to", "step ", "check ", "wait,", "hmm", "constraint", "draft:", "review:", 'says "', "instruction "]
+            _eng_found = [m for m in _eng_m if m in _low]
+            _markers_found = _struct_found + _eng_found
+            try:
+                with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                    import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H2,H5","location":"ws_voice.py:flush_sentence","message":"TTS filter check","data":{"text":clean[:200],"len":len(clean),"latin_ratio":_latin_ratio,"markers_found":_markers_found,"alpha_count":len(_alpha),"latin_count":_latin,"is_leak":_is_reasoning_leak(clean)},"timestamp":int(__import__('time').time()*1000)}) + "\n")
+            except Exception: pass
+            # #endregion
+
+            if _is_reasoning_leak(clean):
+                logger.info("WS TTS skip (reasoning leak) | text='%s'", clean[:80])
                 return
             logger.info("WS TTS start | len=%d text='%s'", len(clean), clean[:60])
             await _safe_send_json(ws, {"type": "tts_start", "sentence": clean})
@@ -368,7 +466,7 @@ class _VoiceSession:
 
         if not self.cancelled:
             await _safe_send_json(
-                ws, {"type": "done", "full_response": full_response}
+                ws, {"type": "done", "full_response": ""}
             )
 
 

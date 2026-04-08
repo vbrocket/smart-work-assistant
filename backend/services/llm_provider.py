@@ -588,7 +588,14 @@ class VLLMProvider(LLMProvider):
                 segment = _content_buf[:cut]
                 _content_buf = _content_buf[cut:]
 
-                if _is_english_heavy(segment):
+                _eng_heavy = _is_english_heavy(segment)
+                # #region agent log
+                try:
+                    with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
+                        import json as _dj; _alpha_s = [c for c in segment if c.isalpha()]; _lat_s = sum(1 for c in _alpha_s if c.isascii()); _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H4","location":"llm_provider.py:spill_filter","message":"segment decision","data":{"segment":segment[:150],"eng_heavy":_eng_heavy,"in_spill":_in_spill,"alpha":len(_alpha_s),"latin":_lat_s,"ratio":round(_lat_s/len(_alpha_s),2) if _alpha_s else 0},"timestamp":int(__import__('time').time()*1000)}) + "\n")
+                except Exception: pass
+                # #endregion
+                if _eng_heavy:
                     if not _in_spill:
                         _in_spill = True
                         yield "<think>"
