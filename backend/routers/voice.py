@@ -356,13 +356,6 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
             )
             logger.info("STREAM ROUTE | intent=%s conf=%.2f voice=%s",
                         decision.intent, decision.confidence, voice_mode)
-            # #region agent log
-            try:
-                import time as _time_mod
-                with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                    import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H2,H3","location":"voice.py:stream_route","message":"stream route decision","data":{"intent":decision.intent,"confidence":decision.confidence,"voice_mode":voice_mode,"message_preview":request.message[:80]},"timestamp":int(_time_mod.time()*1000)}) + "\n")
-            except Exception: pass
-            # #endregion
             yield _sse_event({"type": "route", "intent": decision.intent,
                               "voice_mode": voice_mode})
 
@@ -410,6 +403,9 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
 
             if decision.intent == ROUTE_POLICY_QA and rag_has_docs:
                 logger.info(">>> Stream: POLICY QA (voice=%s)", voice_mode)
+                status_msg = "جاري البحث في السياسات..." if language == "ar" else "Searching policies..."
+                yield _sse_event({"type": "status", "message": status_msg})
+
                 extracted = await llm_service.try_extract_profile_from_message(request.message)
                 if extracted:
                     llm_service.update_employee_profile(extracted)
@@ -474,13 +470,6 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
                     llm_service.conversation_history = llm_service.conversation_history[-llm_service.max_history * 2:]
 
             resp_lang = llm_service.detect_language(full_response) if full_response else language
-            # #region agent log
-            try:
-                import time as _time_mod
-                with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                    import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H2,H3","location":"voice.py:stream_done","message":"stream final response","data":{"intent":decision.intent,"voice_mode":voice_mode,"response_len":len(full_response),"response_preview":full_response[:200]},"timestamp":int(_time_mod.time()*1000)}) + "\n")
-            except Exception: pass
-            # #endregion
             yield _sse_event({"type": "done", "full_response": full_response, "language": resp_lang})
             log_response(logger, "/chat/stream", "success", {"response_length": len(full_response)})
 

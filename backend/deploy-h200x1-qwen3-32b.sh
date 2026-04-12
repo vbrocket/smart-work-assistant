@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 #
-# deploy-h200x1-qwen35-27b-namaa.sh
+# deploy-h200x1-qwen3-32b.sh
 #
-# Full deploy for: 1x NVIDIA H200 NVL | Qwen3.5-27B | NAMAA Saudi TTS
+# Full deploy for: 1x NVIDIA H200 NVL | Qwen3-32B
 #
 # Services:
-#   Port 8001  vLLM LLM        Qwen/Qwen3.5-27B         70% VRAM
+#   Port 8001  vLLM LLM        Qwen/Qwen3-32B           70% VRAM
 #   Port 8002  vLLM Embedding   BAAI/bge-m3              10% VRAM
 #   Port 8003  vLLM Reranker    BAAI/bge-reranker-v2-m3   5% VRAM
 #   Port 18000 FastAPI app
 #
-# TTS: NAMAA-Saudi-TTS (chatterbox, local GPU)
-# Router: shares main LLM on port 8001
-#
 # Usage:
-#   chmod +x deploy-h200x1-qwen35-27b-namaa.sh
-#   ./deploy-h200x1-qwen35-27b-namaa.sh
+#   chmod +x deploy-h200x1-qwen3-32b.sh
+#   ./deploy-h200x1-qwen3-32b.sh
 #
 set -euo pipefail
 
@@ -39,33 +36,6 @@ install_system_deps
 # ═══════════════════════════════════════════════════════════════════════════════
 
 install_pip_base
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Phase 2b: NAMAA TTS dependencies
-# ═══════════════════════════════════════════════════════════════════════════════
-
-install_tts_deps() {
-    log "Phase 2b: Installing NAMAA TTS dependencies..."
-
-    if python3 -c "from chatterbox import mtl_tts" 2>/dev/null; then
-        log "chatterbox-tts already importable -- skipping TTS deps"
-        return 0
-    fi
-
-    log "Installing chatterbox-tts + torchcodec..."
-    pip install -q chatterbox-tts torchcodec 2>&1 | tail -3
-
-    log "Restoring torch==2.10.0 + torchaudio==2.10.0 (vLLM compat, cu129 for B200)..."
-    pip install -q torch==2.10.0 torchaudio==2.10.0 torchvision==0.25.0 \
-        --index-url https://download.pytorch.org/whl/cu129 2>&1 | tail -3
-
-    log "Pinning transformers<5 (vLLM compat)..."
-    pip install -q 'transformers>=4.56.0,<5' 2>&1 | tail -3
-
-    logg "NAMAA TTS deps installed"
-}
-
-install_tts_deps
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Phase 3: Environment file
@@ -94,7 +64,6 @@ setup_rag_data() {
     done
     [ -d "$src/faiss_store" ] && cp -f "$src/faiss_store/"* "$dst/faiss_store/" 2>/dev/null
 
-    # Write embed backend marker so the app won't re-ingest
     echo -n 'vllm:bge-m3' > "$dst/embed_backend.txt"
 
     logg "RAG data copied to $dst (embed marker: vllm:bge-m3)"
@@ -109,8 +78,8 @@ setup_rag_data
 log ""
 logb "Phase 4: Starting vLLM services on single H200..."
 
-# 4a. LLM -- Qwen3.5-27B (70% VRAM)
-start_vllm_service "Qwen/Qwen3.5-27B" 8001 0 0.70 vllm_llm \
+# 4a. LLM -- Qwen3-32B (70% VRAM)
+start_vllm_service "Qwen/Qwen3-32B" 8001 0 0.70 vllm_llm \
     --tensor-parallel-size 1 \
     --max-model-len 32768 \
     --dtype bfloat16 \
@@ -139,7 +108,7 @@ start_vllm_service "BAAI/bge-reranker-v2-m3" 8003 0 0.05 vllm_rerank \
 log ""
 log "Waiting for vLLM services..."
 
-wait_for_port 8001 "LLM (Qwen3.5-27B)" 600 || {
+wait_for_port 8001 "LLM (Qwen3-32B)" 600 || {
     logr "LLM failed. Last 20 lines:"
     tail -20 "$LOG_DIR/vllm_llm.log" 2>/dev/null
     exit 1

@@ -460,20 +460,22 @@ class VLLMProvider(LLMProvider):
             text = text.split("</think>", 1)[1]
         return text.strip()
 
-    def _build_extra_body(self, thinking: bool) -> dict:
+    def _build_extra_body(self, thinking: bool, thinking_budget: Optional[int] = None) -> dict:
         """Build the extra_body dict for vLLM 0.19+.
 
-        With --reasoning-parser qwen3, thinking is enabled by default.
-        We only need chat_template_kwargs to *disable* it.
-        When thinking is enabled, enforce a hard token budget so the
-        model cannot run away with unlimited reasoning.
+        With --reasoning-parser qwen3 + --reasoning-config, we can use
+        thinking_token_budget (a sampling param) to hard-limit reasoning.
+        When thinking is disabled we tell the chat template directly.
         """
         body: dict = {}
         if not thinking:
             body["chat_template_kwargs"] = {"enable_thinking": False}
         else:
-            from config import get_settings
-            body["thinking_token_budget"] = get_settings().thinking_budget
+            if thinking_budget is not None:
+                body["thinking_token_budget"] = thinking_budget
+            else:
+                from config import get_settings
+                body["thinking_token_budget"] = get_settings().thinking_budget
         return body
 
     async def chat(
@@ -484,12 +486,13 @@ class VLLMProvider(LLMProvider):
         stream: bool = False,
         max_tokens: int = 2048,
         enable_thinking: Optional[bool] = None,
+        thinking_budget: Optional[int] = None,
     ) -> str:
         thinking = enable_thinking if enable_thinking is not None else True
         client = self._get_client()
         logger.info(
-            "LLM call | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d | thinking=%s",
-            self._model, len(messages), temperature, max_tokens, thinking,
+            "LLM call | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d | thinking=%s | budget=%s",
+            self._model, len(messages), temperature, max_tokens, thinking, thinking_budget,
         )
         response = await client.chat.completions.create(
             model=self._model,
@@ -498,7 +501,7 @@ class VLLMProvider(LLMProvider):
             top_p=top_p,
             max_tokens=max_tokens,
             stream=False,
-            extra_body=self._build_extra_body(thinking),
+            extra_body=self._build_extra_body(thinking, thinking_budget),
         )
         msg = response.choices[0].message
         raw = msg.content or ""
@@ -511,12 +514,13 @@ class VLLMProvider(LLMProvider):
         top_p: float = 0.9,
         max_tokens: int = 2048,
         enable_thinking: Optional[bool] = None,
+        thinking_budget: Optional[int] = None,
     ) -> AsyncIterator[str]:
         thinking = enable_thinking if enable_thinking is not None else True
         client = self._get_client()
         logger.info(
-            "LLM stream | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d | thinking=%s",
-            self._model, len(messages), temperature, max_tokens, thinking,
+            "LLM stream | provider=vLLM | model=%s | messages=%d | temp=%.1f | max_tokens=%d | thinking=%s | budget=%s",
+            self._model, len(messages), temperature, max_tokens, thinking, thinking_budget,
         )
         stream = await client.chat.completions.create(
             model=self._model,
@@ -525,106 +529,49 @@ class VLLMProvider(LLMProvider):
             top_p=top_p,
             max_tokens=max_tokens,
             stream=True,
-            extra_body=self._build_extra_body(thinking),
+            extra_body=self._build_extra_body(thinking, thinking_budget),
         )
         first_token = True
         in_reasoning = False
-        # Continuous English-spill filter: buffer content in ~sentence
-        # chunks and redirect English-majority text into <think> blocks.
-        _content_buf = ""
-        _in_spill = False  # True when we've opened a spill <think> block
-
-        def _is_english_heavy(text: str) -> bool:
-            """Return True if text has > 50% Latin alphabetic chars."""
-            alpha = [c for c in text if c.isalpha()]
-            if len(alpha) < 5:
-                return False
-            latin = sum(1 for c in alpha if c.isascii())
-            return (latin / len(alpha)) > 0.5
 
         async for chunk in stream:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
 
-            reasoning = getattr(delta, "reasoning", None) or None
-            if reasoning is not None:
-                if _in_spill:
-                    _in_spill = False
-                    yield "</think>"
-                if _content_buf:
-                    yield _content_buf
-                    _content_buf = ""
-                if not in_reasoning:
-                    in_reasoning = True
-                    yield "<think>"
-                yield reasoning
-                continue
+            # When thinking is enabled, route reasoning_content into <think> tags
+            if thinking:
+                reasoning = getattr(delta, "reasoning", None) or None
+                if reasoning is not None:
+                    if not in_reasoning:
+                        in_reasoning = True
+                        yield "<think>"
+                    yield reasoning
+                    continue
 
-            if in_reasoning:
-                in_reasoning = False
-                yield "</think>"
+                if in_reasoning:
+                    in_reasoning = False
+                    yield "</think>"
 
             token = (delta.content if delta and delta.content else "") or ""
             if not token:
                 continue
 
-            _content_buf += token
+            # When thinking is disabled, strip any leaked <think> blocks
+            if not thinking:
+                if "<think>" in token:
+                    token = token.replace("<think>", "")
+                if "</think>" in token:
+                    token = token.replace("</think>", "")
+                if not token:
+                    continue
 
-            # Flush on sentence boundaries or when buffer is large enough
-            while True:
-                # Find a sentence boundary in the buffer
-                cut = -1
-                for delim in ["\n", ". ", ".\n", "؟ ", "。"]:
-                    pos = _content_buf.find(delim)
-                    if pos != -1:
-                        cut = pos + len(delim)
-                        break
-                if cut == -1 and len(_content_buf) > 200:
-                    cut = 200
-                if cut == -1:
-                    break
+            if first_token:
+                logger.info("LLM stream | first token received from %s", self._model)
+                first_token = False
+            yield token
 
-                segment = _content_buf[:cut]
-                _content_buf = _content_buf[cut:]
-
-                _eng_heavy = _is_english_heavy(segment)
-                # #region agent log
-                try:
-                    with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                        import json as _dj; _alpha_s = [c for c in segment if c.isalpha()]; _lat_s = sum(1 for c in _alpha_s if c.isascii()); _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H4","location":"llm_provider.py:spill_filter","message":"segment decision","data":{"segment":segment[:150],"eng_heavy":_eng_heavy,"in_spill":_in_spill,"alpha":len(_alpha_s),"latin":_lat_s,"ratio":round(_lat_s/len(_alpha_s),2) if _alpha_s else 0},"timestamp":int(__import__('time').time()*1000)}) + "\n")
-                except Exception: pass
-                # #endregion
-                if _eng_heavy:
-                    if not _in_spill:
-                        _in_spill = True
-                        yield "<think>"
-                    yield segment
-                else:
-                    if _in_spill:
-                        _in_spill = False
-                        yield "</think>"
-                    if first_token:
-                        logger.info("LLM stream | first token received from %s", self._model)
-                        first_token = False
-                    yield segment
-
-        # Flush remaining buffer
-        if _content_buf:
-            if _is_english_heavy(_content_buf):
-                if not _in_spill:
-                    yield "<think>"
-                    _in_spill = True
-                yield _content_buf
-            else:
-                if _in_spill:
-                    _in_spill = False
-                    yield "</think>"
-                if first_token:
-                    logger.info("LLM stream | first token received from %s", self._model)
-                yield _content_buf
-
-        if in_reasoning or _in_spill:
+        if in_reasoning:
             yield "</think>"
 
     async def generate(

@@ -199,13 +199,6 @@ class _VoiceSession:
             type=thinking (not sent to TTS), normal tokens as type=token."""
             nonlocal _in_think, _think_buf, full_response, token_buffer
 
-            # #region agent log
-            try:
-                with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                    import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H3","location":"ws_voice.py:_send_token","message":"token received","data":{"tok_len":len(tok),"tok_preview":tok[:120],"in_think":_in_think,"has_think_open":"<think>" in tok,"has_think_close":"</think>" in tok},"timestamp":int(__import__('time').time()*1000)}) + "\n")
-            except Exception: pass
-            # #endregion
-
             i = 0
             while i < len(tok):
                 if not _in_think:
@@ -245,7 +238,7 @@ class _VoiceSession:
                         await _safe_send_json(ws, {"type": "thinking_end"})
                         i = end + len("</think>")
 
-        _leak_continuation = False
+        _leak_continuation = 0
 
         def _is_reasoning_leak(text: str) -> bool:
             """Detect analytical/reasoning text that shouldn't be spoken.
@@ -253,6 +246,10 @@ class _VoiceSession:
             constraint checklists) rather than content analysis, since the
             answer language is Arabic and Latin-ratio checks are unreliable
             for mixed-language policy documents.
+
+            When a leak is detected, the next several sentences are also
+            suppressed (via _leak_continuation counter) because the model
+            tends to emit multi-sentence draft revisions.
             """
             nonlocal _leak_continuation
             stripped = text.strip()
@@ -267,7 +264,7 @@ class _VoiceSession:
             latin = sum(1 for c in alpha if c.isascii())
             ratio = latin / len(alpha)
             if ratio > 0.40:
-                _leak_continuation = True
+                _leak_continuation = 4
                 return True
 
             _struct = [
@@ -280,29 +277,27 @@ class _VoiceSession:
             low = stripped.lower()
             for pat in _struct:
                 if _rleak.search(pat, low):
-                    _leak_continuation = True
+                    _leak_continuation = 4
                     return True
 
             _eng_markers = [
                 "context [", "but wait", "let me", "i need to",
                 "step ", "check ", "wait,", "hmm",
-                "constraint", "draft:", "review:",
-                'says "', "instruction ",
+                "constraint", "draft:", "review:", "revised draft:",
+                'says "', "instruction ", "snippet [",
+                "one more check", "wait, i need",
             ]
             if sum(1 for m in _eng_markers if m in low) >= 1:
-                _leak_continuation = True
+                _leak_continuation = 4
                 return True
 
             if _rleak.search(r'\([A-Za-z][A-Za-z ]{3,}\)', stripped):
-                _leak_continuation = True
+                _leak_continuation = 4
                 return True
 
-            if _leak_continuation:
-                if stripped.startswith('"') or stripped.startswith('\u201c'):
-                    return True
-                if _rleak.search(r'^\s*\*\s', stripped):
-                    return True
-                _leak_continuation = False
+            if _leak_continuation > 0:
+                _leak_continuation -= 1
+                return True
 
             return False
 
@@ -328,11 +323,6 @@ class _VoiceSession:
             _eng_m = ["context [", "but wait", "let me", "i need to", "step ", "check ", "wait,", "hmm", "constraint", "draft:", "review:", 'says "', "instruction "]
             _eng_found = [m for m in _eng_m if m in _low]
             _markers_found = _struct_found + _eng_found
-            try:
-                with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                    import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H2,H5","location":"ws_voice.py:flush_sentence","message":"TTS filter check","data":{"text":clean[:200],"len":len(clean),"latin_ratio":_latin_ratio,"markers_found":_markers_found,"alpha_count":len(_alpha),"latin_count":_latin,"is_leak":_is_reasoning_leak(clean)},"timestamp":int(__import__('time').time()*1000)}) + "\n")
-            except Exception: pass
-            # #endregion
 
             if _is_reasoning_leak(clean):
                 logger.info("WS TTS skip (reasoning leak) | text='%s'", clean[:80])
@@ -376,6 +366,8 @@ class _VoiceSession:
                 break
 
         if decision.intent == ROUTE_POLICY_QA and rag_has_docs:
+            status_msg = "جاري البحث في السياسات..." if self.language == "ar" else "Searching policies..."
+            await _safe_send_json(ws, {"type": "status", "message": status_msg})
             hits, debug_info = await rag_service.search_hits(transcript)
             qa = rag_service.qa_engine
             raw_tokens = ""
@@ -455,14 +447,6 @@ class _VoiceSession:
             llm_service.conversation_history.append({"role": "assistant", "content": full_response})
             if len(llm_service.conversation_history) > llm_service.max_history * 2:
                 llm_service.conversation_history = llm_service.conversation_history[-llm_service.max_history * 2:]
-
-        # #region agent log
-        try:
-            import time as _time_mod
-            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H2,H3","location":"ws_voice.py:pipeline_done","message":"WS pipeline final response","data":{"intent":decision.intent,"voice_mode":self.voice_mode,"response_len":len(full_response),"response_preview":full_response[:200]},"timestamp":int(_time_mod.time()*1000)}) + "\n")
-        except Exception: pass
-        # #endregion
 
         if not self.cancelled:
             await _safe_send_json(

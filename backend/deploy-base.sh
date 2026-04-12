@@ -23,6 +23,9 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$DEPLOY_DIR/logs"
 mkdir -p "$LOG_DIR"
 
+# Auto-fix Windows line endings on all .sh files (safe to run every time)
+find "$DEPLOY_DIR" -maxdepth 1 -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+
 # ── Logging helpers ──────────────────────────────────────────────────────────
 
 _ts()  { date '+%H:%M:%S'; }
@@ -120,11 +123,11 @@ setup_env() {
     log "Phase 3: Setting up environment file..."
     cd "$DEPLOY_DIR"
 
-    if [ -f .env ]; then
-        log ".env already exists -- keeping it"
-    elif [ -f .env.vastai ]; then
+    if [ -f .env.vastai ]; then
         cp .env.vastai .env
-        logg "Copied .env.vastai -> .env"
+        logg "Copied .env.vastai -> .env (always overwrite for consistency)"
+    elif [ -f .env ]; then
+        log ".env exists but no .env.vastai template found -- keeping it"
     else
         logr "WARNING: No .env or .env.vastai found"
     fi
@@ -197,6 +200,8 @@ start_fastapi() {
 
     pkill -f 'uvicorn main:app' 2>/dev/null || true
     sleep 1
+
+    find "$DEPLOY_DIR" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 
     nohup python3 -m uvicorn main:app \
         --host 0.0.0.0 \

@@ -13,7 +13,7 @@ logger = logging.getLogger("rag.qa")
 
 QA_SYSTEM_PROMPT = """\
 أنت مساعد متخصص في الإجابة عن أسئلة سياسات الموارد البشرية.
-/think فكّر بإيجاز في 8 جمل كحد أقصى ثم أجب مباشرة. لا تكتب تحليلاً مطوّلاً.
+فكّر بإيجاز شديد (15 جملة كحد أقصى) ثم أجب مباشرة. لا تكرر السياق في تفكيرك، فقط حدد القيم واحسب.
 
 === تعليمات صارمة ===
 0. لا تكتب أي عملية تفكير أو تحليل أو خطوات استدلال في إجابتك. أعطِ الإجابة النهائية مباشرة فقط بصيغة JSON المطلوبة.
@@ -55,7 +55,7 @@ QA_SYSTEM_PROMPT = """\
 
 QA_CHAT_PROMPT = """\
 أنت مساعد متخصص في الإجابة عن أسئلة سياسات الموارد البشرية.
-/think فكّر بإيجاز في 8 جمل كحد أقصى ثم أجب مباشرة. لا تكتب تحليلاً مطوّلاً.
+فكّر بإيجاز شديد (15 جملة كحد أقصى) ثم أجب مباشرة. لا تكرر السياق في تفكيرك، فقط حدد القيم واحسب.
 
 === تعليمات صارمة ===
 0. لا تكتب أي عملية تفكير أو تحليل أو خطوات استدلال في إجابتك. أعطِ الإجابة النهائية مباشرة فقط.
@@ -79,18 +79,18 @@ QA_CHAT_PROMPT = """\
 
 QA_VOICE_PROMPT = """\
 أنت مساعد صوتي للموارد البشرية. سيتم قراءة إجابتك بصوت عالٍ.
-/think فكّر بإيجاز ثم أجب مباشرة.
+لا تكتب أي عملية تفكير أو تحليل في إجابتك. أعطِ الإجابة النهائية فقط مباشرة.
 
 === قواعد صارمة ===
 1. أجب فقط من السياق أدناه. لا تختلق معلومات.
 2. إذا لم تجد الإجابة، قل: "لم أجد معلومات عن هذا في السياسات المتوفرة".
-3. باللغة العربية فقط. لا إنجليزية في الإجابة مطلقاً مهما كانت لغة تفكيرك.
+3. باللغة العربية فقط. لا إنجليزية في الإجابة مطلقاً.
 4. لا تنسيق: لا نجوم، لا شرطات، لا قوائم، لا JSON، لا ماركداون.
 5. اكتب بأسلوب كلام طبيعي سلس كأنك تتحدث مع زميل.
 6. اكتب الأرقام بالكلمات (مثلاً "خمسة عشر يوماً").
-7. قدّم إجابة كافية ومختصرة: اذكر كل النقاط الجوهرية والأرقام المطلوبة دون حذف أي معلومة مهمة، لكن بدون تكرار أو إسهاب.
-8. هام جداً — الجداول والحسابات: إذا ذكر المستخدم عدة متغيرات (مثل: المؤهل، الدرجة، التقييم، الخبرة)، ابحث عن نقاط كل متغير من الجدول أو القسم المناسب في السياق ثم اذكرها كلها واجمعها في الإجمالي النهائي. لا تتجاهل أي معيار لمجرد أنه ورد في قسم مختلف.
-9. طابق المسمى الذي ذكره المستخدم مع المرادف في الجدول بدقة. لا تخلط بين مستويات مختلفة.
+7. قدّم إجابة كافية ومختصرة: اذكر النقاط الجوهرية والأرقام المطلوبة دون تكرار أو إسهاب.
+8. الجداول والحسابات: ابحث عن القيم في الجدول المناسب واجمعها في الإجمالي النهائي.
+9. طابق المسمى الذي ذكره المستخدم مع المرادف في الجدول بدقة.
 
 === السياق ===
 """
@@ -256,14 +256,6 @@ class QAEngine:
         messages.extend(history)
         messages.append({"role": "user", "content": user_msg})
 
-        # #region agent log
-        import time as _time_mod; _dbg_start = _time_mod.time()
-        try:
-            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H3,H4","location":"qa.py:answer_stream","message":"QA stream start","data":{"voice_mode":voice_mode,"history_len":len(history),"context_chars":len(context),"max_tokens":_max_tokens,"enable_thinking":True,"system_prompt_len":len(system_prompt)},"timestamp":int(_time_mod.time()*1000)}) + "\n")
-        except Exception: pass
-        # #endregion
-
         _max_tokens = 4096 if voice_mode else 8192
 
         full = ""
@@ -271,17 +263,10 @@ class QAEngine:
             messages=messages,
             temperature=0.0,
             max_tokens=_max_tokens,
-            enable_thinking=True,
+            enable_thinking=not voice_mode,
         ):
             full += token
             yield {"type": "token", "content": token}
-
-        # #region agent log
-        try:
-            with open("debug-ac76a8.log", "a", encoding="utf-8") as _f:
-                import json as _dj; _f.write(_dj.dumps({"sessionId":"ac76a8","hypothesisId":"H1,H3,H4","location":"qa.py:answer_stream_end","message":"QA stream done","data":{"voice_mode":voice_mode,"answer_len":len(full),"elapsed_s":round(_time_mod.time()-_dbg_start,2)},"timestamp":int(_time_mod.time()*1000)}) + "\n")
-        except Exception: pass
-        # #endregion
 
         yield {
             "type": "meta",

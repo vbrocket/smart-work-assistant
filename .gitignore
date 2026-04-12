@@ -79,3 +79,4 @@ _*.sh
 _*.py
 start_llm.sh
 start_sglang.sh
+.vast_server
