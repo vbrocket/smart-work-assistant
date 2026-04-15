@@ -153,6 +153,9 @@ class _VoiceSession:
         tts_service = get_tts_service()
         orchestrator = get_orchestrator()
 
+        if hasattr(tts_service, 'reset_context'):
+            tts_service.reset_context()
+
         # 1. Route via LLM orchestrator (fast, no sync needed)
         rag_has_docs = rag_service.get_status().get("indexed_chunks", 0) > 0
 

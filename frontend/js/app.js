@@ -496,14 +496,15 @@ const App = {
 
         if (!message) return;
 
+        const voiceMode = !!options.autoSpeak;
+        if (voiceMode) Voice.unlockAudio();
+
         UI.addChatMessage(message, true);
         input.value = '';
 
-        const loadingMessage = UI.addLoadingMessage();
+        let loadingMessage = UI.addLoadingMessage();
         let handle = null;
         let speakHandle = null;
-
-        const voiceMode = !!options.autoSpeak;
 
         return new Promise((resolve) => {
             API.chatStream(message, UI.currentLanguage, {
@@ -1164,6 +1165,8 @@ const App = {
      */
     async enterHandsFreeMode() {
         try {
+            Voice.unlockAudio();
+
             const hasPermission = await Voice.checkMicrophonePermission();
             if (!hasPermission) {
                 UI.showToast(UI.t('error.microphone'), 'error');

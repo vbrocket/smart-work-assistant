@@ -701,15 +701,32 @@ class NamaaTTSService:
 # ---------------------------------------------------------------------------
 
 class ElevenLabsTTSService:
-    """ElevenLabs cloud TTS — high-quality multilingual voice synthesis."""
+    """ElevenLabs cloud TTS — high-quality multilingual voice synthesis.
+
+    Uses voice_settings (high stability) and previous_text / previous_request_ids
+    to keep a consistent tone across sequential sentence chunks.
+    """
 
     def __init__(self):
-        from elevenlabs import ElevenLabs
+        from elevenlabs import ElevenLabs, VoiceSettings
         self._client = ElevenLabs(api_key=settings.elevenlabs_api_key)
         self._voice_id = settings.elevenlabs_voice_id
         self._model = settings.elevenlabs_model
-        logger.info("ElevenLabs TTS initialized | voice=%s model=%s",
+        self._voice_settings = VoiceSettings(
+            stability=0.80,
+            similarity_boost=0.75,
+            style=0.0,
+            use_speaker_boost=True,
+        )
+        self._prev_text: str = ""
+        self._prev_request_ids: list[str] = []
+        logger.info("ElevenLabs TTS initialized | voice=%s model=%s stability=0.80",
                      self._voice_id, self._model)
+
+    def reset_context(self):
+        """Reset sentence-chaining context (call at start of a new response)."""
+        self._prev_text = ""
+        self._prev_request_ids = []
 
     async def synthesize(
         self,
@@ -723,20 +740,31 @@ class ElevenLabsTTSService:
         if not clean:
             return b""
 
-        logger.info("TTS call | provider=ElevenLabs | lang=%s | text_len=%d",
-                     language, len(clean))
+        prev_text = self._prev_text
+        prev_ids = list(self._prev_request_ids[-3:])
+
+        logger.info("TTS call | provider=ElevenLabs | lang=%s | text_len=%d | prev_text_len=%d | prev_ids=%d",
+                     language, len(clean), len(prev_text), len(prev_ids))
 
         def _generate():
-            audio_iter = self._client.text_to_speech.convert(
+            kwargs = dict(
                 voice_id=self._voice_id,
                 text=clean,
                 model_id=self._model,
                 output_format="mp3_44100_128",
+                voice_settings=self._voice_settings,
             )
+            if prev_text:
+                kwargs["previous_text"] = prev_text[-1000:]
+            if prev_ids:
+                kwargs["previous_request_ids"] = prev_ids
+            audio_iter = self._client.text_to_speech.convert(**kwargs)
             return b"".join(audio_iter)
 
         try:
-            return await asyncio.to_thread(_generate)
+            audio = await asyncio.to_thread(_generate)
+            self._prev_text += " " + clean
+            return audio
         except Exception as e:
             logger.error("ElevenLabs TTS failed: %s", e, exc_info=True)
             return b""

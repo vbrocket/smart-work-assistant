@@ -343,6 +343,10 @@ async def voice_chat_stream(request: ChatRequest, db: AsyncSession = Depends(get
             language = request.language or "en"
             voice_mode = bool(request.voice_mode)
 
+            tts_svc = get_tts_service()
+            if hasattr(tts_svc, 'reset_context'):
+                tts_svc.reset_context()
+
             # 1. Route via LLM orchestrator (fast, no sync needed)
             rag_service = get_rag_service()
             rag_has_docs = rag_service.get_status()["indexed_chunks"] > 0

@@ -127,6 +127,13 @@ const WSVoice = {
 
     async startListening() {
         if (this.isListening) return;
+
+        // Unlock audio on user gesture so TTS plays on mobile browsers.
+        // Voice.unlockAudio() blesses a shared Audio element synchronously
+        // during this tap, so all later play() calls on it succeed.
+        Voice.unlockAudio();
+        this._ttsAudioEl = Voice.getSharedAudioEl();
+
         if (!this.connected) {
             this.connect();
             await this._waitForConnection(3000);
@@ -414,7 +421,7 @@ const WSVoice = {
     _playBlob(blob) {
         return new Promise((resolve, reject) => {
             if (!this._ttsAudioEl) {
-                this._ttsAudioEl = new Audio();
+                this._ttsAudioEl = Voice.getSharedAudioEl();
             }
             const audio = this._ttsAudioEl;
             const url = URL.createObjectURL(blob);

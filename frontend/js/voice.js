@@ -15,6 +15,8 @@ const Voice = {
     currentAudio: null, // Reference to currently playing Audio element for cancellation
     maxRecordingTime: 25000,
     maxRecordingTimeout: null,
+    _audioUnlocked: false,
+    _sharedAudioEl: null,
     
     /**
      * Initialize audio context
@@ -25,6 +27,40 @@ const Voice = {
         } catch (error) {
             console.warn('AudioContext not available:', error);
         }
+    },
+
+    /**
+     * Unlock audio playback on mobile browsers.
+     * Must be called synchronously during a user gesture (tap/click) so
+     * that the shared Audio element is "blessed" for future programmatic
+     * play() calls.  Also resumes a suspended AudioContext.
+     */
+    unlockAudio() {
+        if (this._audioUnlocked) return;
+        try {
+            if (!this._sharedAudioEl) {
+                this._sharedAudioEl = new Audio();
+            }
+            const a = this._sharedAudioEl;
+            a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+            a.volume = 0;
+            a.play().then(() => { a.pause(); a.volume = 1; this._audioUnlocked = true; }).catch(() => {});
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+                this.audioContext.resume();
+            }
+        } catch (e) { /* ignore */ }
+    },
+
+    /**
+     * Get the shared Audio element (creates if needed).
+     * After unlockAudio() has blessed it, all play() calls on
+     * this element succeed without a fresh user gesture.
+     */
+    getSharedAudioEl() {
+        if (!this._sharedAudioEl) {
+            this._sharedAudioEl = new Audio();
+        }
+        return this._sharedAudioEl;
     },
     
     /**
@@ -178,29 +214,36 @@ const Voice = {
      */
     async playAudio(audioSource) {
         return new Promise((resolve, reject) => {
-            const audio = new Audio();
+            const audio = this.getSharedAudioEl();
             this.currentAudio = audio;
-            
-            if (audioSource instanceof Blob) {
-                audio.src = URL.createObjectURL(audioSource);
-            } else {
-                audio.src = audioSource;
-            }
-            
+
+            const url = audioSource instanceof Blob
+                ? URL.createObjectURL(audioSource) : audioSource;
+
+            const cleanup = () => {
+                audio.onended = null;
+                audio.onerror = null;
+                if (audioSource instanceof Blob) URL.revokeObjectURL(url);
+            };
+
             audio.onended = () => {
-                if (audioSource instanceof Blob) {
-                    URL.revokeObjectURL(audio.src);
-                }
+                cleanup();
                 this.currentAudio = null;
                 resolve();
             };
-            
+
             audio.onerror = (error) => {
+                cleanup();
                 this.currentAudio = null;
                 reject(error);
             };
-            
-            audio.play().catch(reject);
+
+            audio.src = url;
+            audio.play().catch((err) => {
+                cleanup();
+                this.currentAudio = null;
+                reject(err);
+            });
         });
     },
     
